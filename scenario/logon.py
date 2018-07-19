@@ -3,6 +3,9 @@
 from elasticsearch_dsl.query import MultiMatch
 from scenario.scenario import ElasticScenario
 
+import json
+import copy
+
 """
 	All scenarios related about logon / logoff activities
 """
@@ -58,25 +61,84 @@ class StatLogon(ElasticScenario):
 		super(StatLogon, self).__init__()
 
 	def process(self):
-		q1 = MultiMatch(query='4624', fields=['event.System.EventID.content'])
-		q2 = MultiMatch(query='Security', fields=['event.System.Channel.keyword'])
-		self.search = self.search.query(q1 & q2)
+		sec_logon = (MultiMatch(query='4624', fields=['event.System.EventID.content']) | MultiMatch(query='4625', fields=['event.System.EventID.content'])) & MultiMatch(query='Security', fields=['event.System.Channel.keyword'])
+		self.search = self.search.query(sec_logon)
 		self.resp = self.search.execute()
 
 		print('Total hits: {}'.format(self.resp.hits.total))
-		test = {}
 
 		process = set()
+		"""
+		  Total sucessful connections:
+		  Total Failed connections:
+		  Process used for logon:
+		  	- XXXXX : XX connections
+		  	- XXXXX : XX connections
+		  	- XXXXX : XX connections
+		  Account used for logon:
+		  	- ACOUNT | FIRST TIME | LAST TIME | NB_CO | IPs | NB_FAIL | NB_SUCCESS
+		"""
+		stat_per_comp = {
+			'success' : 0,
+			'fail' : 0,
+			'process' : {},
+			'account' : {}
+		}
+
+		stat_per_account = {
+			'first_seen' : None,
+			'last_seen' : None,
+			'nb_connections' : 0,
+			'nb_fail' : 0,
+			'ips' : {}
+		}
+		stats = {}
+
+
+		print('==========================================================')
+		print('===  Warning this is only based on 4624 and 4625 events ==')
+		print('==========================================================')
 
 		for hit in self.search.scan():
-			# print(hasattr(hit.event.EventData, 'ProcessName'))
-			# print('ProcessName' in hit.event.EventData)
-			if 'ProcessName' in hit.event.EventData and hit.event.EventData.ProcessName != '-':
-				process.add(hit.event.EventData.ProcessName)
+			stat = stats.get(hit.event.System.Computer, copy.deepcopy(stat_per_comp))
+			
+			account_name = '{}\\{}'.format(hit.event.EventData.TargetDomainName, hit.event.EventData.TargetUserName)
+			acc = stat['account'].get(account_name, copy.deepcopy(stat_per_account))
+			acc['nb_connections'] = acc['nb_connections'] + 1
+			nb_co = acc['ips'].get(hit.event.EventData.IpAddress, 0)
+			acc['ips'][hit.event.EventData.IpAddress] = nb_co + 1
 
-				# print('[{}][{}] {}'.format(hit.event.System.Computer, hit.event.System.Channel, hit.event.EventData.ProcessName))		
+			evt_date = hit['@timestamp']
+			if not acc['first_seen']:
+				acc['first_seen'] = evt_date
+				acc['last_seen'] = evt_date
+			else:
+				acc['first_seen'] = min(evt_date, acc['first_seen'])
+				acc['last_seen'] = max(evt_date, acc['last_seen'])
+
+			if hit.event.System.EventID.content == '4624':
+				stat['success'] = stat['success'] + 1
+			if hit.event.System.EventID.content == '4625':
+				acc['nb_fail'] = acc['nb_fail'] + 1				
+				stat['fail'] = stat['fail'] + 1
+
+			if 'ProcessName' in hit.event.EventData:
+				proc_stat = stat['process'].get(hit.event.EventData.ProcessName, 0)
+				stat['process'][hit.event.EventData.ProcessName] = proc_stat + 1
+
+			stat['account'][account_name] = acc
+			stats[hit.event.System.Computer] = stat
+
+		
+
+		for computer, stat in stats.items():
+			print('======= Logon Stats for {} ======='.format(computer))
+			accounts = stat['account']
+			stat['account'] = None
+			print(json.dumps(stats, indent = 2))
+			header = ['Name', 'First Seen', 'Last Seen', 'Total Connections', 'IPs', 'Nb Fail']
+			print(','.join(header))
+			for account, acc_stat in accounts.items():
+				print('{}|{}|{}|{}|{}|{}'.format(account, acc_stat['first_seen'], acc_stat['last_seen'], acc_stat['nb_connections'], ';'.join(acc_stat['ips'].keys()),  acc_stat['nb_fail'] ))
 
 
-			# todo: yield des alertes ?
-
-		print(process)
