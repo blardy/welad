@@ -137,8 +137,8 @@ class StatLogon(ElasticScenario):
 			stat['account'] = None
 			print(json.dumps(stats, indent = 2))
 			header = ['Name', 'First Seen', 'Last Seen', 'Total Connections', 'IPs', 'Nb Fail']
-			print(','.join(header))
+			print('|'.join(header))
 			for account, acc_stat in accounts.items():
-				print('{}|{}|{}|{}|{}|{}'.format(account, acc_stat['first_seen'], acc_stat['last_seen'], acc_stat['nb_connections'], ';'.join(acc_stat['ips'].keys()),  acc_stat['nb_fail'] ))
+				print('|'.join([account, acc_stat['first_seen'], acc_stat['last_seen'], acc_stat['nb_connections'], ';'.join(acc_stat['ips'].keys()),  acc_stat['nb_fail'] ] ))
 
 
