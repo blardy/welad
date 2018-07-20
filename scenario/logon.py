@@ -52,6 +52,28 @@ class LogonHistory(ElasticScenario):
 				print('{}Fail connection (type {} - {}) of {}\\{} from {} ({}) with LogonProcess {} ({})'.format(header, hit.event.EventData.LogonType, LogonHistory.LOGON_SUBSTATUS.get(hit.event.EventData.SubStatus.lower(), hit.event.EventData.SubStatus.lower()),  hit.event.EventData.TargetDomainName, hit.event.EventData.TargetUserName, hit.event.EventData.IpAddress, hit.event.EventData.WorkstationName, hit.event.EventData.LogonProcessName, hit.event.EventData.ProcessName))
 				
 
+
+class RDPHistory(ElasticScenario):
+	help = 'Extract logon history'
+
+
+	def process(self):
+		# RDP
+		rdp_logon = (MultiMatch(query='21', fields=['event.System.EventID.content']) | MultiMatch(query='25', fields=['event.System.EventID.content']) ) & \
+			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=['event.System.Channel.keyword'])
+
+		self.search = self.search.query(rdp_logon)
+		self.resp = self.search.execute()
+
+		print('Having {} of events:'.format(self.resp.hits.total))
+		for hit in self.search.scan():
+			header = '[{}][{}][{}] - '.format(hit['@timestamp'], hit.event.System.Computer, hit.event.System.EventID.content)
+
+			if hit.event.System.EventID.content == '21':
+				print('{}Successful connection of {} from {}'.format(header, hit.event.UserData.EventXML.User, hit.event.UserData.EventXML.Address))
+			if hit.event.System.EventID.content == '25':
+				print('{}Successful reconnection of {} from {}'.format(header, hit.event.UserData.EventXML.User, hit.event.UserData.EventXML.Address))				
+
 		
 
 class StatLogon(ElasticScenario):
