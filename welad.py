@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-from scenario.logon import StatLogon, LogonHistory
+from scenario.logon import StatLogon, LogonHistory, RDPHistory
 
 
 
@@ -41,7 +41,7 @@ from scenario.logon import StatLogon, LogonHistory
 
 
 def main():
-	SCENARS = [StatLogon(), LogonHistory()]
+	SCENARS = [StatLogon(), LogonHistory(), RDPHistory()]
 	SCENARS_DICT = {}
 	for scenar in SCENARS:
 		SCENARS_DICT[scenar.__class__.__name__] = scenar
