@@ -3,6 +3,8 @@
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Search
 
+FIELD_EVENTID = 'Event.System.EventID.text.keyword'
+FIELD_CHANNEL = 'Event.System.Channel.keyword'
 
 class Scenar(object):
 	"""docstring for Scenar"""
@@ -31,6 +33,7 @@ class ElasticScenario(object):
 
 
 	def init(self, args):
+		self.args = args
 		self.elastic = args.elastic
 		self.index = args.index
 

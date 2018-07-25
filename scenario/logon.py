@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from elasticsearch_dsl.query import MultiMatch
-from scenario.scenario import ElasticScenario
+from scenario.scenario import *
 
 import json
 import copy
@@ -30,26 +30,26 @@ class LogonHistory(ElasticScenario):
 
 	def process(self):
 		# 4624 + 4625
-		sec_logon = (MultiMatch(query='4624', fields=['event.System.EventID.content']) | MultiMatch(query='4625', fields=['event.System.EventID.content'])) & MultiMatch(query='Security', fields=['event.System.Channel.keyword'])
+		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
 		# RDP
-		rdp_logon = (MultiMatch(query='21', fields=['event.System.EventID.content']) | MultiMatch(query='25', fields=['event.System.EventID.content']) ) & \
-			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=['event.System.Channel.keyword'])
+		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) & \
+			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
 
 		self.search = self.search.query(rdp_logon | sec_logon)
 		self.resp = self.search.execute()
 
 		print('Having {} of events:'.format(self.resp.hits.total))
 		for hit in self.search.scan():
-			header = '[{}][{}][{}] - '.format(hit['@timestamp'], hit.event.System.Computer, hit.event.System.EventID.content)
+			header = '[{}][{}][{}] - '.format(hit.Event.System.TimeCreated.SystemTime, hit.Event.System.Computer, hit.Event.System.EventID.text)
 
-			if hit.event.System.EventID.content == '21':
-				print('{}Successful connection of {} from {}'.format(header, hit.event.UserData.EventXML.User, hit.event.UserData.EventXML.Address))
-			if hit.event.System.EventID.content == '25':
-				print('{}Successful reconnection of {} from {}'.format(header, hit.event.UserData.EventXML.User, hit.event.UserData.EventXML.Address))
-			if hit.event.System.EventID.content == '4624':
-				print('{}Successful connection (type {}) of {}\\{} from {} ({}) with LogonProcess {} ({})'.format(header, hit.event.EventData.LogonType, hit.event.EventData.TargetDomainName, hit.event.EventData.TargetUserName, hit.event.EventData.IpAddress, hit.event.EventData.WorkstationName, hit.event.EventData.LogonProcessName, hit.event.EventData.ProcessName))
-			if hit.event.System.EventID.content == '4625':
-				print('{}Fail connection (type {} - {}) of {}\\{} from {} ({}) with LogonProcess {} ({})'.format(header, hit.event.EventData.LogonType, LogonHistory.LOGON_SUBSTATUS.get(hit.event.EventData.SubStatus.lower(), hit.event.EventData.SubStatus.lower()),  hit.event.EventData.TargetDomainName, hit.event.EventData.TargetUserName, hit.event.EventData.IpAddress, hit.event.EventData.WorkstationName, hit.event.EventData.LogonProcessName, hit.event.EventData.ProcessName))
+			if hit.Event.System.EventID.text == '21':
+				print('{}Successful connection of {} from {}'.format(header, hit.Event.UserData.EventXML.User, hit.Event.UserData.EventXML.Address))
+			if hit.Event.System.EventID.text == '25':
+				print('{}Successful reconnection of {} from {}'.format(header, hit.Event.UserData.EventXML.User, hit.Event.UserData.EventXML.Address))
+			if hit.Event.System.EventID.text == '4624':
+				print('{}Successful connection (type {}) of {}\\{} from {} ({}) with LogonProcess {} ({})'.format(header, hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.TargetDomainName, hit.Event.EventData.Data.TargetUserName, hit.Event.EventData.Data.IpAddress, hit.Event.EventData.Data.WorkstationName, hit.Event.EventData.Data.LogonProcessName, hit.Event.EventData.Data.ProcessName))
+			if hit.Event.System.EventID.text == '4625':
+				print('{}Fail connection (type {} - {}) of {}\\{} from {} ({}) with LogonProcess {} ({})'.format(header, hit.Event.EventData.Data.LogonType, LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()),  hit.Event.EventData.Data.TargetDomainName, hit.Event.EventData.Data.TargetUserName, hit.Event.EventData.Data.IpAddress, hit.Event.EventData.Data.WorkstationName, hit.Event.EventData.Data.LogonProcessName, hit.Event.EventData.Data.ProcessName))
 				
 
 
@@ -59,20 +59,20 @@ class RDPHistory(ElasticScenario):
 
 	def process(self):
 		# RDP
-		rdp_logon = (MultiMatch(query='21', fields=['event.System.EventID.content']) | MultiMatch(query='25', fields=['event.System.EventID.content']) ) & \
-			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=['event.System.Channel.keyword'])
+		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) & \
+			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
 
 		self.search = self.search.query(rdp_logon)
 		self.resp = self.search.execute()
 
 		print('Having {} of events:'.format(self.resp.hits.total))
 		for hit in self.search.scan():
-			header = '[{}][{}][{}] - '.format(hit['@timestamp'], hit.event.System.Computer, hit.event.System.EventID.content)
+			header = '[{}][{}][{}] - '.format(hit.Event.System.TimeCreated.SystemTime, hit.Event.System.Computer, hit.Event.System.EventID.text)
 
-			if hit.event.System.EventID.content == '21':
-				print('{}Successful connection of {} from {}'.format(header, hit.event.UserData.EventXML.User, hit.event.UserData.EventXML.Address))
-			if hit.event.System.EventID.content == '25':
-				print('{}Successful reconnection of {} from {}'.format(header, hit.event.UserData.EventXML.User, hit.event.UserData.EventXML.Address))				
+			if hit.Event.System.EventID.text == '21':
+				print('{}Successful connection of {} from {}'.format(header, hit.Event.UserData.EventXML.User, hit.Event.UserData.EventXML.Address))
+			if hit.Event.System.EventID.text == '25':
+				print('{}Successful reconnection of {} from {}'.format(header, hit.Event.UserData.EventXML.User, hit.Event.UserData.EventXML.Address))				
 
 		
 
@@ -83,7 +83,7 @@ class StatLogon(ElasticScenario):
 		super(StatLogon, self).__init__()
 
 	def process(self):
-		sec_logon = (MultiMatch(query='4624', fields=['event.System.EventID.content']) | MultiMatch(query='4625', fields=['event.System.EventID.content'])) & MultiMatch(query='Security', fields=['event.System.Channel.keyword'])
+		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
 		self.search = self.search.query(sec_logon)
 		self.resp = self.search.execute()
 
@@ -122,15 +122,15 @@ class StatLogon(ElasticScenario):
 		print('==========================================================')
 
 		for hit in self.search.scan():
-			stat = stats.get(hit.event.System.Computer, copy.deepcopy(stat_per_comp))
+			stat = stats.get(hit.Event.System.Computer, copy.deepcopy(stat_per_comp))
 			
-			account_name = '{}\\{}'.format(hit.event.EventData.TargetDomainName, hit.event.EventData.TargetUserName)
+			account_name = '{}\\{}'.format(hit.Event.EventData.Data.TargetDomainName, hit.Event.EventData.Data.TargetUserName)
 			acc = stat['account'].get(account_name, copy.deepcopy(stat_per_account))
 			acc['nb_connections'] = acc['nb_connections'] + 1
-			nb_co = acc['ips'].get(hit.event.EventData.IpAddress, 0)
-			acc['ips'][hit.event.EventData.IpAddress] = nb_co + 1
+			nb_co = acc['ips'].get(hit.Event.EventData.Data.IpAddress, 0)
+			acc['ips'][hit.Event.EventData.Data.IpAddress] = nb_co + 1
 
-			evt_date = hit['@timestamp']
+			evt_date = hit.Event.System.TimeCreated.SystemTime
 			if not acc['first_seen']:
 				acc['first_seen'] = evt_date
 				acc['last_seen'] = evt_date
@@ -138,18 +138,18 @@ class StatLogon(ElasticScenario):
 				acc['first_seen'] = min(evt_date, acc['first_seen'])
 				acc['last_seen'] = max(evt_date, acc['last_seen'])
 
-			if hit.event.System.EventID.content == '4624':
+			if hit.Event.System.EventID.text == '4624':
 				stat['success'] = stat['success'] + 1
-			if hit.event.System.EventID.content == '4625':
+			if hit.Event.System.EventID.text == '4625':
 				acc['nb_fail'] = acc['nb_fail'] + 1				
 				stat['fail'] = stat['fail'] + 1
 
-			if 'ProcessName' in hit.event.EventData:
-				proc_stat = stat['process'].get(hit.event.EventData.ProcessName, 0)
-				stat['process'][hit.event.EventData.ProcessName] = proc_stat + 1
+			if 'ProcessName' in hit.Event.EventData:
+				proc_stat = stat['process'].get(hit.Event.EventData.Data.ProcessName, 0)
+				stat['process'][hit.Event.EventData.Data.ProcessName] = proc_stat + 1
 
 			stat['account'][account_name] = acc
-			stats[hit.event.System.Computer] = stat
+			stats[hit.Event.System.Computer] = stat
 
 		
 
