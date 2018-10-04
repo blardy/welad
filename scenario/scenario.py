@@ -2,14 +2,25 @@
 
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Search
+from collections import OrderedDict
 
 FIELD_EVENTID = 'Event.System.EventID.text.keyword'
 FIELD_CHANNEL = 'Event.System.Channel.keyword'
+
+class Alert(object):
+
+	def __init__(self, message = '', data =  OrderedDict()):
+		self.message = message
+		self.data = data
+
+	def __getitem__(self, idx):
+		return self.data[idx]
 
 class Scenar(object):
 	"""docstring for Scenar"""
 	def __init__(self):
 		super(Scenar).__init__()
+		self.alerts = []
 		
 	def add_argument(self, parser):
 		pass
@@ -21,7 +32,7 @@ class Scenar(object):
 		pass
 
 
-class ElasticScenario(object):
+class ElasticScenario(Scenar):
 	help = 'Abstract class for scenario using elasticsearch'
 
 	def __init__(self):
