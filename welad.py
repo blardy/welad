@@ -59,7 +59,20 @@ def main():
 		SCENARS_DICT[args.scenar].init(args)
 		SCENARS_DICT[args.scenar].process()
 
-		# print alert if any
+		# Q&D CSV printer
+		# Should do a class or someting to be able to change it later... (eg export to excel, es, csv...)
+		# sort it by date
+		if SCENARS_DICT[args.scenar].alerts and SCENARS_DICT[args.scenar].alerts[0].data.get('SystemTime', False):
+			SCENARS_DICT[args.scenar].alerts = sorted(SCENARS_DICT[args.scenar].alerts, key=lambda x: x['SystemTime'])
+		# Print header
+		if SCENARS_DICT[args.scenar].alerts:
+			print(','.join(SCENARS_DICT[args.scenar].alerts[0].data.keys()))
+		# Print data
+		for alert in SCENARS_DICT[args.scenar].alerts:
+			print(','.join([ str(x) for x in alert.data.values()]))
+
+
+
 
 if __name__ == '__main__':
 	main()
