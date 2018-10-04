@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
 
 from elasticsearch_dsl.query import MultiMatch
+from elasticsearch_dsl import A
 from scenario.scenario import *
 
 from urllib.parse import urlparse
 
 import json
 
+"""
+	Services related
+"""
+
+# TODO
 class SearchKeyword(ElasticScenario):
 	def __init__(self):
 		super(SearchKeyword, self).__init__()
@@ -21,8 +27,12 @@ class SearchKeyword(ElasticScenario):
 		for hit in self.search.scan():
 			print(hit)
 
-
-
+"""
+	Extract BITS (Background Intelligent Transfer Service) URLs
+		Event 59 - BITS started the BITS Transfer transfer job
+		Event 60 - BITS stopped transferring the BITS Transfer transfer job 
+		Event 61 - BITS stopped transferring the BITS Transfer transfer job wth error code
+"""
 class BITSService(ElasticScenario):
 	def __init__(self):
 		super(BITSService, self).__init__()
@@ -33,21 +43,22 @@ class BITSService(ElasticScenario):
 
 
 	def process(self):
-		bits_service = (MultiMatch(query='60', fields=[FIELD_EVENTID]) | MultiMatch(query='61', fields=[FIELD_EVENTID]) ) & MultiMatch(query='Microsoft-Windows-Bits-Client/Operational', fields=[FIELD_CHANNEL])
+		bits_service = (MultiMatch(query='59', fields=[FIELD_EVENTID]) | MultiMatch(query='60', fields=[FIELD_EVENTID]) | MultiMatch(query='61', fields=[FIELD_EVENTID]) ) \
+			& MultiMatch(query='Microsoft-Windows-Bits-Client/Operational', fields=[FIELD_CHANNEL])
 		self.search = self.search.query(bits_service)
+		self.search.aggs.bucket('computer', A('terms', field='Event.System.Computer.keyword'))\
+			.bucket('bits', 'terms', field='Event.EventData.Data.url.keyword')
+
 		self.resp = self.search.execute()
+		for computer_data in self.resp.aggregations.computer:
+			for bits_data in computer_data.bits:
+				alert_data = OrderedDict()
+				alert_data['Computer'] = computer_data.key
+				alert_data['URL'] = bits_data.key
+				alert_data['count'] = bits_data.doc_count
 
-		stats = {}
-
-		print('Total hits: {}'.format(self.resp.hits.total))
-		for hit in self.search.scan():
-			url = urlparse(hit.Event.EventData.Data.url)
-
-			stats[url.netloc] = stats.get(url.netloc, 0) + 1
-			if self.args.verbose:
-				print(url)
-
-		print(json.dumps(stats, indent=2))
+				alert = Alert(data=alert_data)
+				self.alerts.append(alert)
 
 
 """
