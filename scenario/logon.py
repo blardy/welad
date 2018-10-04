@@ -10,8 +10,24 @@ import copy
 	All scenarios related about logon / logoff activities
 """
 
+"""
+	List all logon attempts
+	  Can be verbose...
+"""
 class LogonHistory(ElasticScenario):
 	help = 'Extract logon history'
+
+	LOGON_TYPE = {
+		'2' : 'Interactive',
+		'3' : 'Network',
+		'4' : 'Batch',
+		'5' : 'Service',
+		'7' : 'Unlock',
+		'8' : 'NetworkCleartext',
+		'9' : 'NewCredentials',
+		'10' : 'RemoteInteractive',
+		'11' : 'CachedInteractive',
+	}
 
 	LOGON_SUBSTATUS = {
 		'0xc0000064' : 'user name does not exist',
@@ -29,51 +45,76 @@ class LogonHistory(ElasticScenario):
 	}
 
 	def process(self):
-		# 4624 + 4625
-		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
-		# RDP
-		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) & \
-			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
+		# 4624 + 4625 logon
+		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) \
+			& MultiMatch(query='Security', fields=[FIELD_CHANNEL])
+		# RDP logon
+		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) \
+			& MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
 
 		self.search = self.search.query(rdp_logon | sec_logon)
 		self.resp = self.search.execute()
 
-		print('Having {} of events:'.format(self.resp.hits.total))
 		for hit in self.search.scan():
-			header = '[{}][{}][{}] - '.format(hit.Event.System.TimeCreated.SystemTime, hit.Event.System.Computer, hit.Event.System.EventID.text)
+			alert_data = OrderedDict()
+			alert_data['SystemTime'] = hit.Event.System.TimeCreated.SystemTime
+			alert_data['Computer'] = hit.Event.System.Computer
+			alert_data['event_id'] = hit.Event.System.EventID.text
+			alert_data['IpAddress'] = ''
+			alert_data['TargetDomainName'] = ''
+			alert_data['TargetUserName'] = ''
+			alert_data['LogonType'] = ''
+			alert_data['message'] = ''
 
-			if hit.Event.System.EventID.text == '21':
-				print('{}Successful connection of {} from {}'.format(header, hit.Event.UserData.EventXML.User, hit.Event.UserData.EventXML.Address))
-			if hit.Event.System.EventID.text == '25':
-				print('{}Successful reconnection of {} from {}'.format(header, hit.Event.UserData.EventXML.User, hit.Event.UserData.EventXML.Address))
-			if hit.Event.System.EventID.text == '4624':
-				print('{}Successful connection (type {}) of {}\\{} from {} ({}) with LogonProcess {} ({})'.format(header, hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.TargetDomainName, hit.Event.EventData.Data.TargetUserName, hit.Event.EventData.Data.IpAddress, hit.Event.EventData.Data.WorkstationName, hit.Event.EventData.Data.LogonProcessName, hit.Event.EventData.Data.ProcessName))
-			if hit.Event.System.EventID.text == '4625':
-				print('{}Fail connection (type {} - {}) of {}\\{} from {} ({}) with LogonProcess {} ({})'.format(header, hit.Event.EventData.Data.LogonType, LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()),  hit.Event.EventData.Data.TargetDomainName, hit.Event.EventData.Data.TargetUserName, hit.Event.EventData.Data.IpAddress, hit.Event.EventData.Data.WorkstationName, hit.Event.EventData.Data.LogonProcessName, hit.Event.EventData.Data.ProcessName))
-				
+			if alert_data['event_id'] == '21' or hit.Event.System.EventID.text == '25':					
+				alert_data['IpAddress'] = hit.Event.UserData.EventXML.Address
+				alert_data['TargetUserName'] = hit.Event.UserData.EventXML.User
+				alert_data['LogonType'] = 'Remote Desktop'
+				message = 'Successful connection' if alert_data['event_id'] == '21' else 'Successful reconnection'
+				alert_data['message'] = message
+			else:
+				alert_data['IpAddress'] = hit.Event.EventData.Data.IpAddress
+				alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.LogonType)
+				alert_data['TargetDomainName'] = hit.Event.EventData.Data.TargetDomainName
+				alert_data['TargetUserName'] = hit.Event.EventData.Data.TargetUserName
+				if alert_data['event_id'] == '4625':
+					message = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()))
+				else:
+					message = 'Successful connection'
+				alert_data['message'] = message
 
+			alert = Alert(message = message, data=alert_data)
+			self.alerts.append(alert)
 
+"""
+	Extract logon history from LocalSessionManager logs.
+	 Event 21 (Remote Desktop Services: Session logon succeeded)
+	 Event 25 (Remote Desktop Services: Session reconnection succeeded)
+	    If Event.UserData.EventXML.Address field contains 'LOCAL': this means that it is not a RDP connection but an interactive logon.
+"""
 class RDPHistory(ElasticScenario):
-	help = 'Extract logon history'
-
+	help = 'Extract logon history from LocalSessionManager logs'
 
 	def process(self):
-		# RDP
 		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) & \
 			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
 
 		self.search = self.search.query(rdp_logon)
 		self.resp = self.search.execute()
 
-		print('Having {} of events:'.format(self.resp.hits.total))
 		for hit in self.search.scan():
-			header = '[{}][{}][{}] - '.format(hit.Event.System.TimeCreated.SystemTime, hit.Event.System.Computer, hit.Event.System.EventID.text)
+			if hit.Event.System.EventID.text == '21' or hit.Event.System.EventID.text == '25':
+				alert_data = OrderedDict()
+				alert_data['SystemTime'] = hit.Event.System.TimeCreated.SystemTime
+				alert_data['Computer'] = hit.Event.System.Computer
+				alert_data['event_id'] = hit.Event.System.EventID.text
+				alert_data['IpAddress'] = hit.Event.UserData.EventXML.Address
+				alert_data['TargetUserName'] = hit.Event.UserData.EventXML.User
+				message = 'Successful connection' if alert_data['event_id'] == '21' else 'Successful reconnection'
+				alert_data['message'] = message
 
-			if hit.Event.System.EventID.text == '21':
-				print('{}Successful connection of {} from {}'.format(header, hit.Event.UserData.EventXML.User, hit.Event.UserData.EventXML.Address))
-			if hit.Event.System.EventID.text == '25':
-				print('{}Successful reconnection of {} from {}'.format(header, hit.Event.UserData.EventXML.User, hit.Event.UserData.EventXML.Address))				
-
+				alert = Alert(message = message, data=alert_data)
+				self.alerts.append(alert)
 		
 
 class StatLogon(ElasticScenario):
