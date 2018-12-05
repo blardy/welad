@@ -24,8 +24,10 @@ from resolver.resolver import *
 """
     Q&D update of EvtxToElk package (https://dragos.com/blog/20180717EvtxToElk.html)
       => Add folder input instead of file
-      => Add multithread
+      => Add multiprocessing
       => normalize key name as ES has a hard time handling key containing @ and # chars
+      => Added _id based on teh content of the event in order to avoid duplicate (when ingesting Shadow Copies...)
+      => Added support for getting event description from winevt-kb database
 
     MIT License
 
@@ -158,9 +160,7 @@ class CustomEvtxToElk:
                             if tag:
                                 doc['tag'] = tag
                             if doc is not None and doc.get("Event", {}).get("EventData") is not None and doc.get("Event", {}).get("EventData", {}).get("Data", {}).get("OldTime", False) and log_line.get("Event", {}).get("EventData", {}).get("Data", {}).get("NewTime", False):
-                                # previous_time = datetime.strptime(doc["Event"]["EventData"]["Data"]["OldTime"], "%Y-%m-%d %H:%M:%S.%f")
                                 previous_time = _get_date(doc["Event"]["EventData"]["Data"]["OldTime"])
-                                # new_time = datetime.strptime(doc["Event"]["EventData"]["Data"]["NewTime"], "%Y-%m-%d %H:%M:%S.%f")
                                 new_time = _get_date(doc["Event"]["EventData"]["Data"]["NewTime"])
                                 if previous_time and new_time:
                                     doc["Event"]["EventData"]["Data"]["DeltaTime"] = (previous_time - new_time).total_seconds()
@@ -175,6 +175,7 @@ class CustomEvtxToElk:
                                 doc["Event"]["Description"]['short'] = description.strip().split('%n')[0]
 
                             doc["_id"] = str(uuid.uuid5(uuid.NAMESPACE_DNS, json.dumps(doc)))
+                            
                             yield doc
 
                             # yield (idx, "winevt", json.loads(json.dumps(log_line)))
@@ -216,7 +217,6 @@ if __name__ == "__main__":
     parser.add_argument('--elk_ip', default="localhost", help="IP (and port) of ELK instance")
     parser.add_argument('--elk_index', default="default", help="IP (and port) of ELK instance")
     parser.add_argument('--thread', type=int, default=4, help="IP (and port) of ELK instance")
-
 
     parser.add_argument('-d', '--database', required=False, help='Main winevt-kb database')
 
