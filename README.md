@@ -6,12 +6,13 @@ Collection of scripts for anomalies detection on Windows event logs.
 Info
 --------
 
-Import tool (import_evtx.py) is based on dgunter work (https://github.com/dgunter/evtxtoelk).
+Import tool (import_evtx_multi.py) is based on dgunter work (https://github.com/dgunter/evtxtoelk).
 A few improvment / mofication was done:
   - Add argument for destination index
   - Add argument for input (handle folder and file)
-  - Multithreading support
+  - Multiprocessing support
   - Normalize keys name as ES failed handling keys containing '@' and '#' chars
+  - adding tag support
 
 Anomaly detection scripts perform queries on elasticsearch database and export useful information (eg. suspicious logon)
 
