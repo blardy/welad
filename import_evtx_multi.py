@@ -21,6 +21,7 @@ import multiprocessing
 from resolver.resolver import *
 
 
+
 """
     Q&D update of EvtxToElk package (https://dragos.com/blog/20180717EvtxToElk.html)
       => Add folder input instead of file
@@ -79,7 +80,7 @@ class CustomEvtxToElk:
 
         return copy_dict
 
-    def evtx_to_elk(self, filename, tag, args, resolver):
+    def evtx_to_elk(self, filename, tag, args, resolver, metadata):
         with open(filename) as infile:
             with contextlib.closing(mmap.mmap(infile.fileno(), 0, access=mmap.ACCESS_READ)) as buf:
                 fh = FileHeader(buf, 0x0)
@@ -172,9 +173,12 @@ class CustomEvtxToElk:
                                 doc["Event"]["Description"] = {}
                                 doc["Event"]["Description"]['raw'] = description
                                 doc["Event"]["Description"]['full'] = description.replace('%n', '\n').replace('%r', '\r').replace('%t', '\t')
-                                doc["Event"]["Description"]['short'] = description.strip().split('%n')[0]
+                                doc["Event"]["Description"]['short'] = doc["Event"]["Description"]['full'].strip().split('\n')[0]
 
                             doc["_id"] = str(uuid.uuid5(uuid.NAMESPACE_DNS, json.dumps(doc)))
+                            # Avoid duplicate
+                            doc.update(metadata)
+
                             
                             yield doc
 
@@ -192,7 +196,7 @@ class CustomEvtxToElk:
                     print('{}: {}'.format(filename, e))
 
 def worker(_id, elk_ip, elk_idx, l, tag, args):
-    es = Elasticsearch([elk_ip], maxsize=128)
+    es = Elasticsearch([elk_ip], maxsize=128, timeout=120, max_retries=10, retry_on_timeout=True, http_auth=(args.es_user, args.es_password))
     resolver = None
     if args.database:
         resolver = Resolver(args.database)
@@ -200,7 +204,9 @@ def worker(_id, elk_ip, elk_idx, l, tag, args):
     for evtx_file in l:
         print('  [{}] Start processing {}'.format(_id, evtx_file))
         try:
-            bulk(es, CustomEvtxToElk().evtx_to_elk(evtx_file, tag, args, resolver), index=elk_idx, doc_type="winevt")
+            metadata = args.meta
+            metadata['filename'] = evtx_file
+            bulk(es, CustomEvtxToElk().evtx_to_elk(evtx_file, tag, args, resolver, metadata), index=elk_idx, doc_type="winevt")
         except Exception as e:
             print(e)
             pass       
@@ -212,11 +218,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # Add arguments
     parser.add_argument('--evtxfile', help="Evtx file to parse")
-    parser.add_argument('--tag', help="tag")
+    parser.add_argument('--tag', help="tag the inserted event, 2 same event with different tag will create 2 events, if you wnat to tag and de-duplicate event, use meta")
+    parser.add_argument('--meta', type=json.loads, default={}, help="JSON metadata to add to new events (duplicate evnt will not be added and therefore metadata wont)")
     parser.add_argument('--evtxfolder', help="Evtx folder")
     parser.add_argument('--elk_ip', default="localhost", help="IP (and port) of ELK instance")
     parser.add_argument('--elk_index', default="default", help="IP (and port) of ELK instance")
     parser.add_argument('--thread', type=int, default=4, help="IP (and port) of ELK instance")
+    parser.add_argument('--es_user', default='elastic', help="")
+    parser.add_argument('--es_password', default='', help="")
 
     parser.add_argument('-d', '--database', required=False, help='Main winevt-kb database')
 
