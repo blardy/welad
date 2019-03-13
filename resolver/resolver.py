@@ -35,6 +35,7 @@ class Resolver(object):
         self.database_cache_connectors = {
             database : self.database_conn
         }
+        self.cache = {}
 
     def __del__(self):
         for database, database_conn in self.database_cache_connectors.items():
@@ -51,8 +52,19 @@ class Resolver(object):
 
         return conn
 
-    def get_message_string(self, provider, eventid, lcid = 0x409, vers= 'IDontCareAboutThis...'):
+    def add_to_cache(self, provider, eventid, message):
+        provider_cache = self.cache.get(provider, {})
+        provider_cache[eventid] = message
+        self.cache[provider] = provider_cache
+
+    def is_cached(self, provider, eventid):
+        return self.cache.get(provider, {}).get(eventid, 'not-cached') is not 'not-cached'
+
+    def get_message_string(self, provider, eventid, lcid = 0x409, vers= None):
         try:
+            if self.is_cached(provider, eventid):
+                return self.cache[provider][eventid]
+
             main_db = self.open_db(self.database)
 
             QUERY_PROVIDER_DB = """
@@ -61,10 +73,11 @@ class Resolver(object):
                     message_file_per_event_log_provider.event_log_provider_key = event_log_providers.event_log_provider_key
                 INNER JOIN message_files ON 
                     message_files.message_file_key = message_file_per_event_log_provider.message_file_key 
-            WHERE log_source=?
+            WHERE log_source like ?
             """
             database_filename = main_db.execute(QUERY_PROVIDER_DB, (provider,)).fetchone()
             if not database_filename:
+                self.add_to_cache(provider, eventid, '')
                 return ""
             else:
                 database_filename = database_filename[0]
@@ -75,92 +88,36 @@ class Resolver(object):
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             tables = [table[0] for table in cursor.fetchall() if 'message_table_0x' in table[0]]
 
-            try:
-                table_name = 'message_table_0x{:08x}{}'.format(lcid, vers)
-                str_eventid = '%{:05x}'.format(eventid)
-                QUERY_EVENT_MESS = "SELECT message_string FROM {} WHERE message_identifier like ?".format(table_name)
-                message = provider_db.execute(QUERY_EVENT_MESS, (str_eventid, )).fetchone()
-            except:
-                message = ""
-
-
+            message = ""
+            str_eventid = '%{:04x}'.format(eventid)
+            if vers:
+                try:
+                    table_name = 'message_table_0x{:08x}{}'.format(lcid, vers)
+                    QUERY_EVENT_MESS = "SELECT message_string FROM {} WHERE message_identifier like ?".format(table_name)
+                    message = provider_db.execute(QUERY_EVENT_MESS, (str_eventid, )).fetchone()
+                except:
+                    pass
+                    
             if not message:
                 # We try all the tables....
                 for table in tables:
+                    # Only get teh english tables...
+                    if not table.startswith('message_table_0x{:08x}'.format(lcid)):
+                        continue
                     QUERY_EVENT_MESS = "SELECT message_string FROM {} WHERE message_identifier like ?".format(table)
                     message = provider_db.execute(QUERY_EVENT_MESS, (str_eventid, )).fetchone()
                     if message:
+                        self.add_to_cache(provider, eventid, message[0].strip())
                         return message[0].strip()
+                self.add_to_cache(provider, eventid, '')
                 return ''
+
+            self.add_to_cache(provider, eventid, message[0].strip())
 
             return message[0].strip()
         except Exception as e:
             print(e)
             return ''
-
-
-# def get_message_string(database, provider, eventid, lcid, vers):
-#     try:
-#         filename = database.split('/')[-1]
-#         basename = './'
-#         if len(database.split('/')[-1]) > 1:
-#             basename = '/'.join(database.split('/')[:-1])
-#             basename += '/'
-
-#         conn = sqlite3.connect(database)
-
-#         QUERY_PROVIDER_DB = """
-#         SELECT database_filename FROM event_log_providers 
-#             INNER JOIN message_file_per_event_log_provider ON 
-#                 message_file_per_event_log_provider.event_log_provider_key = event_log_providers.event_log_provider_key
-#             INNER JOIN message_files ON 
-#                 message_files.message_file_key = message_file_per_event_log_provider.message_file_key 
-#         WHERE log_source=?
-#         """
-#         database_filename = conn.execute(QUERY_PROVIDER_DB, (provider,)).fetchone()
-#         logging.info('database for this provider is: {}'.format(database_filename))
-#         #conn.close()
-#         if not database_filename:
-#             return ""
-#         else:
-#             database_filename = database_filename[0]
-#         database_filename = basename + database_filename
-
-#         conn = sqlite3.connect(database_filename)
-
-#         cursor = conn.cursor()
-#         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-#         # conn = sqlite3.connect(database_filename)
-
-#         tables = [table[0] for table in cursor.fetchall() if 'message_table_0x' in table[0]]
-
-#         try:
-#             table_name = 'message_table_0x{:08x}{}'.format(lcid, vers)
-#             str_eventid = '%{:05x}'.format(eventid)
-#             QUERY_EVENT_MESS = "SELECT message_string FROM {} WHERE message_identifier like ?".format(table_name)
-#             message = conn.execute(QUERY_EVENT_MESS, (str_eventid, )).fetchone()
-#         except:
-#             message = ""
-
-#         if not message:
-#             # We try all the tables....
-#             # conn.close()
-#             for table in tables:
-#                 QUERY_EVENT_MESS = "SELECT message_string FROM {} WHERE message_identifier like ?".format(table)
-#                 # conn = sqlite3.connect(database_filename)
-#                 message = conn.execute(QUERY_EVENT_MESS, (str_eventid, )).fetchone()
-#                 if message:
-#                     conn.close()
-#                     return message[0].strip()
-#                 # conn.close()
-
-#             return ""
-
-#         conn.close()    
-#         return message[0].strip()
-#     except Exception as e:
-#         print(e)
-#         return ""
 
 def run():
     # Handle arguments

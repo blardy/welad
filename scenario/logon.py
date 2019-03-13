@@ -10,6 +10,76 @@ import copy
 	All scenarios related about logon / logoff activities
 """
 
+class FailedLogonHistory(ElasticScenario):
+	help = 'Extract logon history'
+
+	LOGON_TYPE = {
+		'2' : 'Interactive',
+		'3' : 'Network',
+		'4' : 'Batch',
+		'5' : 'Service',
+		'7' : 'Unlock',
+		'8' : 'NetworkCleartext',
+		'9' : 'NewCredentials',
+		'10' : 'RemoteInteractive',
+		'11' : 'CachedInteractive',
+	}
+
+	LOGON_SUBSTATUS = {
+		'0xc0000064' : 'user name does not exist',
+		'0xc000006a' : 'user name is correct but the password is wrong',
+		'0xc0000234' : 'user is currently locked out',
+		'0xc0000072' : 'account is currently disabled',
+		'0xc000006f' : 'user tried to logon outside his day of week or time of day restrictions',
+		'0xc0000070' : 'workstation restriction, or Authentication Policy Silo violation (look for event ID 4820 on domain controller)',
+		'0xc0000193' : 'account expiration',
+		'0xc0000071' : 'expired password',
+		'0xc0000133' : 'clocks between DC and other computer too far out of sync',
+		'0xc0000224' : 'user is required to change password at next logon',
+		'0xc0000225' : 'evidently a bug in Windows and not a risk',
+		'0xc000015b' : 'The user has not been granted the requested logon type (aka logon right) at this machine',
+	}
+
+	def process(self):
+		# 4625 logon
+		sec_logon = (MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
+
+		self.search = self.search.query(sec_logon)
+		self.resp = self.search.execute()
+
+		for hit in self.search.scan():
+			alert_data = OrderedDict()
+			alert_data['SystemTime'] = hit.Event.System.TimeCreated.SystemTime
+			alert_data['Computer'] = hit.Event.System.Computer
+			alert_data['event_id'] = hit.Event.System.EventID.text
+			alert_data['IpAddress'] = ''
+			alert_data['TargetDomainName'] = ''
+			alert_data['TargetUserName'] = ''
+			alert_data['LogonType'] = ''
+			alert_data['message'] = ''
+
+			if alert_data['event_id'] == '21' or hit.Event.System.EventID.text == '25':					
+				alert_data['IpAddress'] = hit.Event.UserData.EventXML.Address
+				alert_data['TargetUserName'] = hit.Event.UserData.EventXML.User
+				alert_data['LogonType'] = 'Remote Desktop'
+				message = 'Successful connection' if alert_data['event_id'] == '21' else 'Successful reconnection'
+				alert_data['message'] = message
+			else:
+				alert_data['IpAddress'] = hit.Event.EventData.Data.IpAddress
+				alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.LogonType)
+				alert_data['TargetDomainName'] = hit.Event.EventData.Data.TargetDomainName
+				alert_data['TargetUserName'] = hit.Event.EventData.Data.TargetUserName
+				if alert_data['event_id'] == '4625':
+					message = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()))
+				else:
+					message = 'Successful connection'
+				alert_data['message'] = message
+
+			alert = Alert(message = message, data=alert_data)
+			self.alerts.append(alert)
+
+
+
 """
 	List all logon attempts
 	  Can be verbose...
@@ -52,7 +122,7 @@ class LogonHistory(ElasticScenario):
 		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) \
 			& MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
 
-		self.search = self.search.query(rdp_logon | sec_logon)
+		self.search = self.search.query( (rdp_logon | sec_logon))
 		self.resp = self.search.execute()
 
 		for hit in self.search.scan():
@@ -115,8 +185,8 @@ class RDPHistory(ElasticScenario):
 
 				alert = Alert(message = message, data=alert_data)
 				self.alerts.append(alert)
-		
 
+# TODO		
 class StatLogon(ElasticScenario):
 	help = 'Extract stats about logon'
 

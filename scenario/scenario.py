@@ -41,6 +41,8 @@ class ElasticScenario(Scenar):
 	def add_argument(self, parser):
 		parser.add_argument('--elastic', required=True, help="IP:port of elasticsearch master")
 		parser.add_argument('--index', required=True, help="elasticsearch index to query")
+		parser.add_argument('--es_user', default='', help="")
+		parser.add_argument('--es_password', default='', help="")
 
 
 	def init(self, args):
@@ -48,7 +50,7 @@ class ElasticScenario(Scenar):
 		self.elastic = args.elastic
 		self.index = args.index
 
-		self.client = Elasticsearch([self.elastic])
+		self.client = Elasticsearch([self.elastic], http_auth=(args.es_user, args.es_password))
 		self.search = Search(using=self.client, index=self.index)
 
 	def process(self):
