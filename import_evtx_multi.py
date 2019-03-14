@@ -59,7 +59,7 @@ def _get_date(str_time):
     time = None
     for time_format in time_formats:
         try:
-            time = datetime.strptime(str_time, time_formats)
+            time = datetime.strptime(str_time, time_format)
             if time:
                 break
         except:
@@ -206,7 +206,7 @@ def worker(_id, elk_ip, elk_idx, l, tag, args):
         try:
             metadata = args.meta
             metadata['filename'] = evtx_file
-            bulk(es, CustomEvtxToElk().evtx_to_elk(evtx_file, tag, args, resolver, metadata), index=elk_idx, doc_type="winevt")
+            bulk(es, CustomEvtxToElk().evtx_to_elk(evtx_file, tag, args, resolver, metadata), index=elk_idx, doc_type="winevt") #, request_timeout=60
         except Exception as e:
             print(e)
             pass       
