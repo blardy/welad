@@ -50,7 +50,7 @@ class ElasticScenario(Scenar):
 		self.elastic = args.elastic
 		self.index = args.index
 
-		self.client = Elasticsearch([self.elastic], http_auth=(args.es_user, args.es_password))
+		self.client = Elasticsearch([self.elastic], http_auth=(args.es_user, args.es_password), timeout=30)
 		self.search = Search(using=self.client, index=self.index)
 
 	def process(self):

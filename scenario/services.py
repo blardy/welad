@@ -25,9 +25,18 @@ class MaliciousPowerShell(ElasticScenario):
 	def __init__(self):
 		super(MaliciousPowerShell, self).__init__()
 
+	def add_argument(self, parser):
+		super(MaliciousPowerShell, self).add_argument(parser)
+		parser.add_argument('--filter', required=False, help='Custom filter "Event.EventData.Data.SubjectUserName.keyword:plop"')
+
 	def process(self):
 		
 		services = MultiMatch(query='Windows PowerShell', fields=['Event.System.Channel.keyword']) & (MultiMatch(query='-noni') | MultiMatch(query='-nop -w hidden') | MultiMatch(query='COMSPEC') )
+
+		if self.args.filter:
+			data = self.args.filter.strip().split(':')
+			services = services & MultiMatch(query=data[1], fields=[data[0]])
+			
 		self.search =self.search.query(services)
 		self.resp = self.search.execute()
 

@@ -1,11 +1,25 @@
 # -*- coding: utf-8 -*-
 
+from datetime import datetime
+
 import logging
 import re
 import base64
 import gzip
 import binascii
 
+def _get_date(str_time):
+	time_formats = ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]
+	time = None
+	for time_format in time_formats:
+		try:
+			time = datetime.strptime(str_time, time_format)
+			if time:
+				break
+		except Exception as e:
+			print(e)
+			pass
+	return time
 
 def decode_powershell(raw_payload):
 	""" It takes a payload string as input and tries to decode it as powershell payload

@@ -3,18 +3,18 @@
 from elasticsearch_dsl.query import MultiMatch, Range
 from elasticsearch_dsl import A
 from scenario.scenario import *
+from scenario.utils import _get_date
 
 
 import logging
+import json
 
 
 """
 	OPTIM:
 		+ ProcessTree
-			- Change how the process tree is build as it is slow... and it is doing much queries...
-				+ First query to get 4688 event with filters
-				+ based on this one do one or more queries to get the end of process (using OR with process id...) => should at least be able to get 10 by 10...
-				 => Construct child based on the process we ave seen AND not using another queries....
+			- Change how the process tree is build as it is slow... and it is doing much queries for building childs....
+
 	SCENARIO:
 		+ ProcessAnomaly
 			- Todo :) from temp, appdata...;
@@ -62,6 +62,41 @@ class Process(object):
 
 		return s
 
+	def find_exit(self, exit_points):
+		try:
+			#  { computer : { logon_id : { process: { pid : [timestamp1,...., N ] }}}}
+			timestamps = exit_points[self.system][self.logon_id][self.image_path][self.pid]
+			if len(timestamps) == 1:
+				self.end = timestamps[0]
+			elif len(timestamps) == 0:
+				logging.debug('No suitable end for process found...')
+				pass
+			else:
+				# need to take the most suitable exit points (ie: the most near the current process)
+				logging.info('Found {} exit points: {}'.format(len(timestamps), timestamps))
+				most_suitable = None
+
+				begin_date = _get_date(self.begin)
+
+				for exit_idx, exit_timestamp in enumerate(timestamps):
+					exit_date = _get_date(exit_timestamp)
+					if exit_date < begin_date:
+						continue
+
+					delta = exit_date - begin_date
+					if not most_suitable or delta < most_suitable[0] :
+						most_suitable = (delta, exit_timestamp)
+
+				if most_suitable:
+					self.end = most_suitable[1]
+					logging.info('Most suitable exit point is : {}'.format(most_suitable[1]))
+				else:
+					logging.info('No suitable exit point found :')
+
+
+		except:
+			return False
+		return True
 
 	def get_childs(self, search_object):
 		""" It returns a dict containing childs processes. Keys are UID of childs
@@ -76,10 +111,14 @@ class Process(object):
 		#  AND coming from same system (Computer)
 		#  AND coming from same logon Session (SubjectLogonId)
 		#  AND that was spawned when current process was alive (begin < child < end)
+		time_filter = Range(** {'@timestamp': {'gte': self.begin}})
+		if self.end:
+			time_filter = Range(** {'@timestamp': {'gte': self.begin, 'lte': self.end}})
+
 		child_query = MultiMatch(query='4688', fields=[FIELD_EVENTID]) \
 			& MultiMatch(query=self.system, fields=['Event.System.Computer.keyword']) \
 			& MultiMatch(query=self.pid, fields=['Event.EventData.Data.ProcessId.keyword']) \
-			& Range(** {'@timestamp': {'gte': self.begin, 'lte': self.end}})
+			& time_filter
 
 		search_object = search_object.query(child_query)
 		response = search_object.execute()
@@ -187,6 +226,65 @@ class ProcessTree(ElasticScenario):
 		parser.add_argument('--_to', required=False, help='YYYY-MM-DDTHH:MM:SS')
 		parser.add_argument('--process_with_child_only', action='store_true', help='only prints processes that have childs')
 
+	def find_all_possible_exit_points(self, process_list, max_query_size=100):
+
+		exit_points = {}
+
+		exit_query = MultiMatch(query='4689', fields=[FIELD_EVENTID])
+		sub_queries = []
+		for current_process in process_list:
+			sub_q = MultiMatch(query=current_process.pid, fields=['Event.EventData.Data.ProcessId.keyword']) \
+				& MultiMatch(query=current_process.system, fields=['Event.System.Computer.keyword']) \
+				& MultiMatch(query=current_process.logon_id, fields=['Event.EventData.Data.SubjectLogonId.keyword']) \
+				& MultiMatch(query=current_process.image_path, fields=['Event.EventData.Data.ProcessName.keyword'])
+
+			sub_queries.append(sub_q)
+
+		sub_queries = [sub_queries[i:i+max_query_size] for i in range(0, len(sub_queries), max_query_size)]
+		for sub_query in sub_queries:
+			all_sub_q = sub_query[0]
+			for sub_q in sub_query[1:]:
+				all_sub_q |= sub_q
+			query = exit_query & all_sub_q
+
+			exit_search = Search(using=self.client, index=self.index)
+			exit_search = exit_search.query(query)
+			exit_processes_resp = exit_search.execute()
+			logging.info(' => Total hits: : {}'.format(exit_processes_resp.hits.total))
+			for hit in exit_search.scan():
+				# Generic
+				computer = hit.Event.System.Computer
+				timestamp = hit.Event.System.TimeCreated.SystemTime
+				eventid = hit.Event.System.EventID.text
+				desc = hit.Event.Description.short.strip()
+				channel = hit.Event.System.Channel.strip()
+				sid = hit.Event.System.Security.UserID.strip()
+
+				process = hit.Event.EventData.Data.ProcessName
+				pid = hit.Event.EventData.Data.ProcessId
+				
+				logon_id = hit.Event.EventData.Data.SubjectLogonId
+				logon_domain = hit.Event.EventData.Data.SubjectDomainName
+				logon_account = hit.Event.EventData.Data.SubjectUserName
+				logon_sid = hit.Event.EventData.Data.SubjectUserSid
+
+				# Build dict
+				#  { computer : { logon_id : { process: { pid : [timestamp1,...., N ] }}}}
+
+				computer_exits = exit_points.get(computer, {})
+				logon_id_exits = computer_exits.get(logon_id, {})
+				process_exit = logon_id_exits.get(process, {})
+				pids_exit = process_exit.get(pid, [])
+				pids_exit.append(timestamp)
+				process_exit[pid] = pids_exit
+				logon_id_exits[process] = process_exit
+				computer_exits[logon_id] = logon_id_exits
+				exit_points[computer] = computer_exits
+
+		logging.debug(json.dumps(exit_points, indent=2))
+
+		return exit_points
+
 	def process(self):
 		processes_search =  MultiMatch(query='4688', fields=[FIELD_EVENTID])
 		if self.args.system:
@@ -245,73 +343,19 @@ class ProcessTree(ElasticScenario):
 		#  2 - For each process, search the exit point
 		#
 
-		# Todo: Global query to get all exit point ==> only 1 query to ES
-		#   And then stored it on hashmap by [system][logon_id][pid][imagepath]['processes'] = [EXIT_P1, EXIT_P2, EXIT_P3....]
-		#   GO over eahc process and lok for exit point on hasmap.
+		exit_points = self.find_all_possible_exit_points(PROCESS_ALL)
+		for current_process in PROCESS_ALL:
+			current_process.find_exit(exit_points)
 
-		SESSION_ID = {}
-		SESSION_ID_VALID = {}
-		process_with_no_end = 0
-		process_with_too_many_end = 0
+		#
+		#  3 - Find childs
+		#
+
 		cpt = 0
 		for current_process in PROCESS_ALL:
+		# for current_process in PROCESS_VALID:
 			cpt += 1
-			logging.info('Finding end of processes: {}/{}'.format(cpt,len(PROCESS_ALL)))
-
-			count = SESSION_ID.get(current_process.logon_id, 0)
-			SESSION_ID[current_process.logon_id] = count + 1
-
-			# Search for  the end of teh process	
-			exit_search = Search(using=self.client, index=self.index)
-			exit_processes_search = MultiMatch(query='4689', fields=[FIELD_EVENTID]) \
-				& MultiMatch(query=current_process.pid, fields=['Event.EventData.Data.ProcessId.keyword']) \
-				& MultiMatch(query=current_process.system, fields=['Event.System.Computer.keyword']) \
-				& MultiMatch(query=current_process.logon_id, fields=['Event.EventData.Data.SubjectLogonId.keyword']) \
-				& MultiMatch(query=current_process.image_path, fields=['Event.EventData.Data.ProcessName.keyword'])
-			exit_search = exit_search.query(exit_processes_search)
-			exit_processes_resp = exit_search.execute()
-
-			if not exit_processes_resp.hits.total:
-				logon_id_unk_process = PROCESS_NO_EXIT.get(logon_id, [])
-				logon_id_unk_process.append(current_process)
-				PROCESS_NO_EXIT[logon_id] = logon_id_unk_process
-				process_with_no_end += 1
-			elif exit_processes_resp.hits.total > 1:
-				logon_id_unk_process = PROCESS_TOO_MANY_EXIT.get(logon_id, [])
-				logon_id_unk_process.append(current_process)
-				PROCESS_TOO_MANY_EXIT[logon_id] = logon_id_unk_process
-				process_with_too_many_end += 1
-			else:
-				exit_point = exit_processes_resp[0]
-				end_date = exit_point.Event.System.TimeCreated.SystemTime
-				current_process.end = end_date
-				PROCESS_VALID.append(current_process)
-
-				count = SESSION_ID_VALID.get(current_process.logon_id, 0)
-				SESSION_ID_VALID[current_process.logon_id] = count + 1
-
-
-		#
-		#  3 - Some warning about processes that were skipped during proces...
-		#
-		logging.warning('')
-		logging.warning('==========================================================================')
-		logging.warning('   - Found {} valid processes in {} different SessionID'.format(len(PROCESS_VALID), len(SESSION_ID_VALID.keys())))
-		logging.warning('   - Found {} processes with no end'.format(process_with_no_end))
-		logging.warning('      - Those were found on {} Sessions: {}'.format(len(PROCESS_NO_EXIT.keys()), PROCESS_NO_EXIT.keys()))
-		logging.warning('   - Found {} processes with too many end'.format(process_with_too_many_end))
-		logging.warning('      - Those were found on {} Sessions: {}'.format(len(PROCESS_TOO_MANY_EXIT.keys()), PROCESS_TOO_MANY_EXIT.keys()))
-		logging.warning('==========================================================================')
-		logging.warning('')
-		#
-		#  4 - Find child for Valid processes
-		#
-
-		# End loop
-		cpt = 0
-		for current_process in PROCESS_VALID:
-			cpt += 1
-			logging.info('Computing childs: {}/{}'.format(cpt, len(PROCESS_VALID)))			
+			logging.info('Computing childs: {}/{}'.format(cpt, len(PROCESS_ALL)))			
 			for child_uid in current_process.get_childs(Search(using=self.client, index=self.index)).keys():
 				# look if we already handle this child process to build the tree
 				if PROCESS_TREE.get(child_uid, False):
@@ -327,6 +371,10 @@ class ProcessTree(ElasticScenario):
 				parent.childs[current_process.uid()] = current_process
 			else:
 				PROCESS_TREE[current_process.uid()] = current_process
+
+		#
+		#  4 - Print !!!
+		#
 
 		root_processes = [process for uid, process in PROCESS_TREE.items()]
 		for process in sorted(root_processes, key=lambda process: process.begin):
