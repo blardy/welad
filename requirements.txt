@@ -1,3 +1,4 @@
 python-evtx
 elasticsearch
 xmltodict
+sqlite3
