@@ -302,7 +302,7 @@ def import_evtx():
     parser.add_argument('--folder', help="Evtx folder to parse")
 
     parser.add_argument('--tag', help="tag the inserted event, 2 identical events with different tags will create 2 distinct documents, if you want to de-duplicate events use --meta")
-    parser.add_argument('--meta', type=json.loads, default={}, help="JSON metadata to add to new events (duplicate event will not be added and therefore metadata wont)")
+    parser.add_argument('--meta', type=json.loads, default={}, help="JSON metadata to add (if duplicate veent, it will update doc)")
 
     parser.add_argument('--nb_process', type=int, default=4, help="Number of Ingest processes to spawn, only useful for more than 1 file")
     parser.add_argument('--bulk_size', type=int, default=750, help="BUlk size to use when sending docs into ElasticSearch")
