@@ -10,11 +10,15 @@ __version__ = "0.1"
 
 import argparse
 import logging
+import sys
 
 from scenario.logon import StatLogon, LogonHistory, RDPHistory, FailedLogonHistory
 from scenario.services import MaliciousPowerShell, BITSService
 from scenario.processes import ProcessTree, ProcessStat
 from scenario.search import CSVExport
+
+from writer.console import ConsoleWriter
+from writer.csv import CSVWriter
 
 
 LOG_FORMAT = '[%(asctime)s][{}][{}][%(levelname)s]%(funcName)s:'.format(__progname__, __version__) + ' %(message)s'
@@ -27,7 +31,7 @@ LOG_VERBOSITY = {
 }
 
 
-def init_parser(scenarios):
+def init_parser(scenarios, writers):
 	""" It instantiate an Argument parser
 	     And then sub-parsers for each scenario
 
@@ -36,6 +40,9 @@ def init_parser(scenarios):
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--tag', help="tag")
 	parser.add_argument("-v", "--verbosity", help="increase output verbosity", choices = LOG_VERBOSITY, default='WARNING')
+	parser.add_argument("-o", "--output", type=lambda x: open(x, 'w'), help="output file", default=sys.stdout)
+	parser.add_argument("-w", "--writer", choices = writers, default=writers[0], help="writer to use")
+	
 	subparsers = parser.add_subparsers(help='Scenarios',  dest='scenar')
 	for scenar in scenarios:
 		p = subparsers.add_parser(scenar.__class__.__name__, help=scenar.help)
@@ -52,32 +59,24 @@ def main():
 	for scenar in SCENARS:
 		SCENARS_DICT[scenar.__class__.__name__] = scenar
 
+	WRITERS = {
+		'console' : ConsoleWriter,
+		'csv' : CSVWriter,
+		
+	}
+
 	# get arguments
-	args = init_parser(SCENARS).parse_args()
+	args = init_parser(SCENARS, [k for k in WRITERS.keys()]).parse_args()
 
 	# configure logging
 	logging.basicConfig(format=LOG_FORMAT, level=LOG_VERBOSITY[args.verbosity], datefmt='%Y-%m-%d %I:%M:%S')
 	logging.warning('Hello hello....')
 
 	if SCENARS_DICT.get(args.scenar, False):
-		logging.info('Init {}'.format(args.scenar))
 		SCENARS_DICT[args.scenar].init(args)
-		logging.info('Processing {}'.format(args.scenar))
 		SCENARS_DICT[args.scenar].process()
 
-		logging.info('{} had {} alerts'.format(args.scenar, len(SCENARS_DICT[args.scenar].alerts)))
-
-		# Q&D CSV printer
-		# Should do a class or someting to be able to change it later... (eg export to excel, es, csv...)
-		# sort it by date
-		if SCENARS_DICT[args.scenar].alerts and SCENARS_DICT[args.scenar].alerts[0].data.get('SystemTime', False):
-			SCENARS_DICT[args.scenar].alerts = sorted(SCENARS_DICT[args.scenar].alerts, key=lambda x: x['SystemTime'])
-		# Print header
-		if SCENARS_DICT[args.scenar].alerts:
-			print(','.join(SCENARS_DICT[args.scenar].alerts[0].data.keys()))
-		# Print data
-		for alert in SCENARS_DICT[args.scenar].alerts:
-			print(','.join([ str(x) for x in alert.data.values()]))
+		WRITERS[args.writer](args.output).write(SCENARS_DICT[args.scenar].alert)
 	else:
 		logging.error('Please specify something... Use -h !!!')
 
