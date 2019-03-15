@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-    TODO: description
+    Ingest EVTX file(s) into an ElasticSearch database
+       Based on Dan Gunter work (https://dragos.com/blog/20180717EvtxToElk.html)
 """
 __progname__ = "Import EVTX (multi)"
 __version__ = "0.1"
