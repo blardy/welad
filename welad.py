@@ -12,10 +12,10 @@ import argparse
 import logging
 import sys
 
-from scenario.logon import StatLogon, LogonHistory, RDPHistory, FailedLogonHistory
+from scenario.logon import LogonHistory, RDPHistory, FailedLogonHistory
 from scenario.services import MaliciousPowerShell, BITSService
 from scenario.processes import ProcessTree, ProcessStat
-from scenario.search import CSVExport
+from scenario.search import Search
 
 from writer.console import ConsoleWriter
 from writer.csv import CSVWriter
@@ -40,7 +40,7 @@ def init_parser(scenarios, writers):
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--tag', help="tag")
 	parser.add_argument("-v", "--verbosity", help="increase output verbosity", choices = LOG_VERBOSITY, default='WARNING')
-	parser.add_argument("-o", "--output", type=lambda x: open(x, 'w'), help="output file", default=sys.stdout)
+	parser.add_argument("-o", "--output", type=argparse.FileType('w'), help="output file", default=sys.stdout)
 	parser.add_argument("-w", "--writer", choices = writers, default=writers[0], help="writer to use")
 	
 	subparsers = parser.add_subparsers(help='Scenarios',  dest='scenar')
@@ -54,7 +54,7 @@ def init_parser(scenarios, writers):
 def main():
 	# Instantiate all scenarios
 	#   TODO: maybe I should do something with __init__.py to load those....	
-	SCENARS = [StatLogon(), LogonHistory(), RDPHistory(), MaliciousPowerShell(), BITSService(), FailedLogonHistory(), CSVExport(), ProcessTree(), ProcessStat()]
+	SCENARS = [LogonHistory(), RDPHistory(), MaliciousPowerShell(), BITSService(), FailedLogonHistory(), Search(), ProcessTree(), ProcessStat()]
 	SCENARS_DICT = {}
 	for scenar in SCENARS:
 		SCENARS_DICT[scenar.__class__.__name__] = scenar
