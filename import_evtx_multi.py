@@ -1,3 +1,14 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+    TODO: description
+"""
+__progname__ = "Import EVTX (multi)"
+__version__ = "0.1"
+
+
+import logging
 import contextlib
 import mmap
 import traceback
@@ -20,6 +31,14 @@ import multiprocessing
 
 from resolver.resolver import *
 
+LOG_FORMAT = '[%(asctime)s][{}][{}][%(levelname)s]%(funcName)s:'.format(__progname__, __version__) + ' %(message)s'
+LOG_VERBOSITY = {
+    'DEBUG' : logging.DEBUG,
+    'INFO' : logging.INFO,
+    'WARNING' : logging.WARNING,
+    'ERROR' : logging.ERROR,
+    'CRITICAL' : logging.CRITICAL,
+}
 
 
 """
@@ -54,8 +73,9 @@ from resolver.resolver import *
 """
 
 
-def _get_date(str_time):
-    time_formats = ["%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]
+def _get_date(str_time, time_formats = ["%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]):
+    """ converts teh given string to a datetime using the given format strings
+    """
     time = None
     for time_format in time_formats:
         try:
@@ -64,20 +84,19 @@ def _get_date(str_time):
                 break
         except:
             pass
-
     return time
-
 
 
 class CustomEvtxToElk:
     def _normalize(self, dictionnary):
+        """ Removes '#' or '@' in keys of the given dict
+        """
         copy_dict = OrderedDict()
         for k,v in dictionnary.items():
             if isinstance(v, OrderedDict):
                 copy_dict[k.replace('#','').replace('@','')] = self._normalize(v)
             else:
                 copy_dict[k.replace('#','').replace('@','')] = v
-
         return copy_dict
 
     def evtx_to_elk(self, filename, tag, args, resolver, metadata):
@@ -91,16 +110,13 @@ class CustomEvtxToElk:
                             contains_event_data = False
                             log_line = xmltodict.parse(xml)
 
-                            # Format the date field
-                            date = log_line.get("Event").get("System").get("TimeCreated").get("@SystemTime")
-                            if "." not in str(date):
-                                date = datetime.strptime(date, "%Y-%m-%d %H:%M:%S")
-                            else:
-                                date = datetime.strptime(date, "%Y-%m-%d %H:%M:%S.%f")
-                            log_line['@timestamp'] = str(date.isoformat())
-                            log_line["Event"]["System"]["TimeCreated"]["@SystemTime"] = str(date.isoformat())
+                            # Convert to datetime
+                            date = _get_date(log_line.get("Event").get("System").get("TimeCreated").get("@SystemTime"))
+                            str_date = str(date.isoformat())
+                            log_line['@timestamp'] = str_date
+                            log_line["Event"]["System"]["TimeCreated"]["@SystemTime"] = str_date
 
-                            # BLA: remove special char (# & @) on key name
+                            # Remove weird chars in keys
                             if log_line.get("Event"):
                                 log_line["Event"] = self._normalize(log_line["Event"])
 
@@ -110,6 +126,7 @@ class CustomEvtxToElk:
                                 data = log_line.get("Event")
                                 if log_line.get("Event").get("EventData") is not None:
                                     data = log_line.get("Event").get("EventData")
+
                                     if log_line.get("Event").get("EventData").get("Data") is not None:
                                         data = log_line.get("Event").get("EventData").get("Data")
                                         if isinstance(data, list):
@@ -117,6 +134,10 @@ class CustomEvtxToElk:
                                             data_vals = {}
                                             for dataitem in data:
                                                 try:
+                                                    if dataitem.get("Name") is not None:
+                                                        data_vals[str(dataitem.get("Name"))] = str(
+                                                            str(dataitem.get("text")))
+
                                                     if dataitem.get("@Name") is not None:
                                                         data_vals[str(dataitem.get("@Name"))] = str(
                                                             str(dataitem.get("#text")))
@@ -167,10 +188,13 @@ class CustomEvtxToElk:
                                     doc["Event"]["EventData"]["Data"]["DeltaTime"] = (previous_time - new_time).total_seconds()
 
 
-                            # TODO: shoudl load all the mysql db from into mem for perf...
+                            # TODO: should load all the mysql db from into mem for perf...
+                            doc["Event"]["Description"] = {}
+                            doc["Event"]["Description"]['raw'] = ''
+                            doc["Event"]["Description"]['full'] = ''
+                            doc["Event"]["Description"]['short'] = ''
                             if resolver:
                                 description = resolver.get_message_string(doc["Event"]["System"]["Provider"]["Name"], int(doc["Event"]["System"]["EventID"]["text"]))
-                                doc["Event"]["Description"] = {}
                                 doc["Event"]["Description"]['raw'] = description
                                 doc["Event"]["Description"]['full'] = description.replace('%n', '\n').replace('%r', '\r').replace('%t', '\t')
                                 doc["Event"]["Description"]['short'] = doc["Event"]["Description"]['full'].strip().split('\n')[0]
@@ -182,92 +206,143 @@ class CustomEvtxToElk:
                             
                             yield doc
 
-                            # yield (idx, "winevt", json.loads(json.dumps(log_line)))
-                            # es.index(index=idx, doc_type="winevt", body=json.loads(json.dumps(log_line)))
                         except GeneratorExit:
                             return
                         except:
-                            print("***********")
-                            print("Parsing Exception")
-                            print(traceback.print_exc())
-                            print(json.dumps(log_line, indent=2))
-                            print("***********")
+                            logging.error("***********")
+                            logging.error("Parsing Exception")
+                            logging.error(traceback.print_exc())
+                            logging.error(json.dumps(log_line, indent=2))
+                            logging.error("***********")
                 except Exception as e:
-                    print('{}: {}'.format(filename, e))
+                    logging.error('{}: {}'.format(filename, e))
 
-def worker(_id, elk_ip, elk_idx, l, tag, args):
-    es = Elasticsearch([elk_ip], maxsize=128, timeout=120, max_retries=10, retry_on_timeout=True, http_auth=(args.es_user, args.es_password))
+def ingest_worker(worker_id, es_ip, es_idx, files, tag, args):
+    logging.warning('Start worker [{}] with {} files to ingest'.format(worker_id, len(files)))
+
+    es = Elasticsearch([es_ip], maxsize=128, timeout=120, max_retries=10, retry_on_timeout=True, http_auth=(args.es_user, args.es_password))
     resolver = None
     if args.database:
         resolver = Resolver(args.database)
-    #print('[{}] Start worker with: {}'.format(_id, l))
-    for evtx_file in l:
-        print('  [{}] Start processing {}'.format(_id, evtx_file))
+
+    for evtx_file in files:
+        logging.warning('  [{}] Start processing {}'.format(worker_id, evtx_file))
         try:
             metadata = args.meta
             metadata['filename'] = evtx_file
-            bulk(es, CustomEvtxToElk().evtx_to_elk(evtx_file, tag, args, resolver, metadata), index=elk_idx, doc_type="winevt") #, request_timeout=60
+            bulk(es, CustomEvtxToElk().evtx_to_elk(evtx_file, tag, args, resolver, metadata), index=es_idx, doc_type="winevt", chunk_size=args.bulk_size) #, request_timeout=60
         except Exception as e:
-            print(e)
+            logging.error(e)
             pass       
 
-q = queue.Queue()
+    logging.warning('End worker [{}]'.format(worker_id))
+    return True
 
-if __name__ == "__main__":
-    # Create argument parser
-    parser = argparse.ArgumentParser()
-    # Add arguments
-    parser.add_argument('--evtxfile', help="Evtx file to parse")
-    parser.add_argument('--tag', help="tag the inserted event, 2 same event with different tag will create 2 events, if you wnat to tag and de-duplicate event, use meta")
-    parser.add_argument('--meta', type=json.loads, default={}, help="JSON metadata to add to new events (duplicate evnt will not be added and therefore metadata wont)")
-    parser.add_argument('--evtxfolder', help="Evtx folder")
-    parser.add_argument('--elk_ip', default="localhost", help="IP (and port) of ELK instance")
-    parser.add_argument('--elk_index', default="default", help="IP (and port) of ELK instance")
-    parser.add_argument('--thread', type=int, default=4, help="IP (and port) of ELK instance")
-    parser.add_argument('--es_user', default='elastic', help="")
-    parser.add_argument('--es_password', default='', help="")
 
-    parser.add_argument('-d', '--database', required=False, help='Main winevt-kb database')
 
-    # Parse arguments and call evtx to elk class
+def list_files(file, folder, extension = '*.evtx'):
+    """ It returns a list of files based on teh given input path and filter on extension
+    """
+    if file:
+        return [file]
+    elif folder:
+        return [ y for x in os.walk(folder) for y in glob(os.path.join(x[0], extension))]
+    else:
+        return []
+
+
+def dispatch_files_bysize(nb_list, files):
+    """ It creates N list of files based on filesize to average the size between lists.
+    """
+
+    logging.info('Having {} files to dispatch in {} lists'.format(len(files), nb_list))
+    #
+    #  1 - Init N lists of size 0.
+    #
+    sublists = {}
+    for list_id in range(0,nb_list):
+        sublists[list_id] = {
+            'files' : [],
+            'size' : 0
+        }
+
+    #
+    #  2 - For each file, get the smallest sublist and append file.
+    #
+
+    def _get_smallest_sublist(sublists):
+        """ get the smallest sublist
+        """
+        smallest_list_id = 0
+        for list_id, sublist in sublists.items():
+            if sublist['size'] < sublists[smallest_list_id]['size']:
+                smallest_list_id = list_id
+
+        return smallest_list_id
+
+    for file in files:
+        logging.info('dispatching {}'.format(file))
+        list_id = _get_smallest_sublist(sublists)
+        sublists[list_id]['files'].append(file)
+        sublists[list_id]['size'] += os.stat(file).st_size
+        
+    for list_id, sublist in sublists.items():
+        logging.warning(' List [{}] Having {} files for a size of {}'.format(list_id, len(sublist['files']), sublist['size'] ))
+
+    return [ sublist['files'] for list_id, sublist in sublists.items()]
+
+def import_evtx():
+    #
+    # 1 - Parse arguments
+    #
+    parser = argparse.ArgumentParser()   
+    parser.add_argument("-v", "--verbosity", help="increase output verbosity", choices = LOG_VERBOSITY, default='WARNING')
+
+    parser.add_argument('--file', help="Evtx file to parse")
+    parser.add_argument('--folder', help="Evtx folder to parse")
+
+    parser.add_argument('--tag', help="tag the inserted event, 2 identical events with different tags will create 2 distinct documents, if you want to de-duplicate events use --meta")
+    parser.add_argument('--meta', type=json.loads, default={}, help="JSON metadata to add to new events (duplicate event will not be added and therefore metadata wont)")
+
+    parser.add_argument('--nb_process', type=int, default=4, help="Number of Ingest processes to spawn, only useful for more than 1 file")
+    parser.add_argument('--bulk_size', type=int, default=750, help="BUlk size to use when sending docs into ElasticSearch")
+
+    
+    parser.add_argument('--es_ip', default="localhost", help="IP (and port) of ELK instance")
+    parser.add_argument('--es_index', default="winevt-lab", help="index to use for ingest process")
+    parser.add_argument('--es_user', default='elastic', help="User for ES instance")
+    parser.add_argument('--es_password', default='', help="Password for ES instance")
+
+    parser.add_argument('-d', '--database', required=False, help='Main winevt-kb database for resolving event description string based on channel/eventID')
+
     args = parser.parse_args()
 
-    idx = 'winevt-{}'.format(args.elk_index.lower())
-    threads = []
-    if args.evtxfile:
-        evtx_files = [args.evtxfile]
-    elif args.evtxfolder:
-        evtx_files = [ y for x in os.walk(args.evtxfolder) for y in glob(os.path.join(x[0], '*.evtx'))]
+    logging.basicConfig(format=LOG_FORMAT, level=LOG_VERBOSITY[args.verbosity], datefmt='%Y-%m-%d %I:%M:%S')
 
-    thread_info = {}
-    for thread_id in range(0,args.thread):
-        thread_info[thread_id] = {
-            'files' : [],
-            'files_size' : 0
-        }
-    # get thread with min list
-    def get_thread_with_smallest_size(thread_info):
-        thread_id_with_smallest_size = 0
-        for thread_id, thread_data in thread_info.items():
-            if thread_data['files_size'] < thread_info[thread_id_with_smallest_size]['files_size']:
-                thread_id_with_smallest_size = thread_id
+    # 
+    # 2 - Get Files & dispatch them into lists for multiprocessing puprose
+    #
+    evtx_files = list_files(args.file, args.folder, extension = '*.evtx')
+    if not evtx_files:
+        logging.error('Missing either --file or --folder arguments, or directory does not contain valid files...')
+        return
 
-        return thread_id_with_smallest_size
+    #
+    # 3 - Dispatch files into a list for each process
+    #         [ [list1], [list2], [list3], [list4], ....]
+    # TODO: should use a multiprocessing.Pipe or Queue instead...
+    sublists = dispatch_files_bysize(args.nb_process, evtx_files)
 
+    #
+    # 4 - Create N Ingestion process 
+    #
 
-    for evtx_file in evtx_files:
-        thread_id = get_thread_with_smallest_size(thread_info)
-        thread_info[thread_id]['files'].append(evtx_file)
-        thread_info[thread_id]['files_size'] += os.stat(evtx_file).st_size
-        
-    for thread_id, thread_data in thread_info.items():
-        print('[{}] Having {} files for a size of {}'.format(thread_id, len(thread_data['files']), thread_data['files_size'] ))
+    with multiprocessing.Pool(processes=args.nb_process) as pool:
+        results =  []
+        for process_id in range(args.nb_process):
+            results.append(pool.apply_async(ingest_worker, args=(process_id, args.es_ip, args.es_index.lower(), sublists[process_id], args.tag, args)))
 
-    lists = [ thread_data['files'] for thread_id, thread_data in thread_info.items()]
+        [res.get() for res in results]
 
-
-    jobs = []
-    for i in range(args.thread):
-        p = multiprocessing.Process(target=worker, args=(i, args.elk_ip, idx, lists[i], args.tag, args))
-        jobs.append(p)
-        p.start()
+if __name__ == "__main__":
+    import_evtx()
