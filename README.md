@@ -1,15 +1,19 @@
 WELAD (Windows Event Log Anomaly Detection)
 ============
 
-Collection of scripts for anomalies detection on Windows event logs.
+Collection of scripts for EVTX ingest into ElasticSearch database and anomalies detection on Windows event logs.
 
 Info
 --------
 
 Import tool (import_evtx_multi.py) is based on dgunter work (https://github.com/dgunter/evtxtoelk).
-A few improvment / mofication was done:
-  - Add argument for destination index
-  - Add argument for input (handle folder and file)
+A few improvements / mofications were done:
+  - Add arguments
+    - destination index
+    - file / folder
+    - size of bulk
+    - ElasticSearch user/password
+    - metadata
   - Multiprocessing support
   - Normalize keys name as ES failed handling keys containing '@' and '#' chars
   - adding tag support
@@ -51,17 +55,35 @@ PUT _template/template_1
 }
 ```
 
-Example
+Update "index_patterns" with your index names.
+
+Example (import_evtx_multi)
 --------
 
 Ingest a folder containing evtx files into `winevt-test` index:
 ```
- python3 parse_evtx_custom.py --elk_ip localhost --elk_index test --evtxfolder /data/evtx/folder
+python3 import_evtx_multi.py --folder /data/evtx/folder --es_index winevt-test --es_ip localhost
 ```
 
 Ingest a single evtx file into `winevt-test` index:
 ```
- python3 parse_evtx_custom.py --elk_ip localhost --elk_index test --evtxfile /data/evtx/folder/Security.evtx
+python3 import_evtx_multi.py --file /data/evtx/folder/Security.evtx --es_index winevt-test --es_ip localhost
 ```
 
-TODO: anomaly detection example
+Ingest a folder containing evtx files into `winevt-test` index with adding a tag to each docs:
+```
+python3 import_evtx_multi.py --folder /data/evtx/folder --es_index winevt-test --es_ip localhost --tag CASE_NAME 
+```
+
+Ingest a folder containing evtx files into `winevt-test` index with adding a tag to each docs and metadatas (metadatas are only updated documents if it already exist):
+```
+python3 import_evtx_multi.py --folder /data/evtx/folder --es_index winevt-test --es_ip localhost --tag CASE_NAME --meta '{"batch_id" : "plop"}'
+```
+
+Ingest a folder containing evtx files into `winevt-test` index with message string resolution (see https://github.com/libyal/winevt-kb/wiki/Scripts)
+```
+python3 import_evtx_multi.py --folder /data/evtx/folder --es_index winevt-test --es_ip localhost -d /data/winevt-kb-db/winevt-kb.db
+```
+
+Example (welad)
+--------
