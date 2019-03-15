@@ -6,6 +6,21 @@ from scenario.scenario import *
 import json
 import copy
 
+
+"""
+	OPTIM:
+		+ 
+		
+	SCENARIO:
+		+ Stats
+			- About logon
+			- About failed logon
+		+ Anomaly
+			- IP that registered with several Workstation Name
+			- User that connected from more tha X workstation
+			- User that connected to more than X workstation
+"""
+
 """
 	All scenarios related about logon / logoff activities
 """
@@ -44,39 +59,36 @@ class FailedLogonHistory(ElasticScenario):
 		# 4625 logon
 		sec_logon = (MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
 
+		if self.filter:
+			sec_logon &= self.filter
+
 		self.search = self.search.query(sec_logon)
 		self.resp = self.search.execute()
 
+		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Domain\\User', 'IP Address', 'Workstion Name'])
+
 		for hit in self.search.scan():
-			alert_data = OrderedDict()
+			computer = hit.Event.System.Computer
+			timestamp = hit.Event.System.TimeCreated.SystemTime
+
+			alert_data = {}
 			alert_data['SystemTime'] = hit.Event.System.TimeCreated.SystemTime
 			alert_data['Computer'] = hit.Event.System.Computer
 			alert_data['event_id'] = hit.Event.System.EventID.text
 			alert_data['IpAddress'] = ''
-			alert_data['TargetDomainName'] = ''
+			alert_data['TargetDomainName'] = '.'
 			alert_data['TargetUserName'] = ''
 			alert_data['LogonType'] = ''
 			alert_data['message'] = ''
+			alert_data['WorkstationName'] = ''
+			alert_data['IpAddress'] = hit.Event.EventData.Data.IpAddress
+			alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.LogonType)
+			alert_data['TargetDomainName'] = hit.Event.EventData.Data.TargetDomainName
+			alert_data['TargetUserName'] = hit.Event.EventData.Data.TargetUserName
+			alert_data['WorkstationName'] = hit.Event.EventData.Data.WorkstationName
+			alert_data['message'] = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()))
 
-			if alert_data['event_id'] == '21' or hit.Event.System.EventID.text == '25':					
-				alert_data['IpAddress'] = hit.Event.UserData.EventXML.Address
-				alert_data['TargetUserName'] = hit.Event.UserData.EventXML.User
-				alert_data['LogonType'] = 'Remote Desktop'
-				message = 'Successful connection' if alert_data['event_id'] == '21' else 'Successful reconnection'
-				alert_data['message'] = message
-			else:
-				alert_data['IpAddress'] = hit.Event.EventData.Data.IpAddress
-				alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.LogonType)
-				alert_data['TargetDomainName'] = hit.Event.EventData.Data.TargetDomainName
-				alert_data['TargetUserName'] = hit.Event.EventData.Data.TargetUserName
-				if alert_data['event_id'] == '4625':
-					message = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()))
-				else:
-					message = 'Successful connection'
-				alert_data['message'] = message
-
-			alert = Alert(message = message, data=alert_data)
-			self.alerts.append(alert)
+			self.alert.add_alert([timestamp, computer, alert_data['message'], alert_data['LogonType'], '{}\\{}'.format(alert_data['TargetDomainName'], alert_data['TargetUserName']), alert_data['IpAddress'], alert_data['WorkstationName'] ])
 
 
 
@@ -122,19 +134,31 @@ class LogonHistory(ElasticScenario):
 		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) \
 			& MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
 
-		self.search = self.search.query( (rdp_logon | sec_logon))
+		query = (rdp_logon | sec_logon) 
+		if self.filter:
+			query &= self.filter
+
+
+		self.search = self.search.query(query)
 		self.resp = self.search.execute()
+		logging.info(' => Total hits: : {}'.format(self.resp.hits.total))
+
+		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Domain\\User', 'IP Address', 'Workstion Name'])
 
 		for hit in self.search.scan():
-			alert_data = OrderedDict()
+			computer = hit.Event.System.Computer
+			timestamp = hit.Event.System.TimeCreated.SystemTime
+
+			alert_data = {}
 			alert_data['SystemTime'] = hit.Event.System.TimeCreated.SystemTime
 			alert_data['Computer'] = hit.Event.System.Computer
 			alert_data['event_id'] = hit.Event.System.EventID.text
 			alert_data['IpAddress'] = ''
-			alert_data['TargetDomainName'] = ''
+			alert_data['TargetDomainName'] = '.'
 			alert_data['TargetUserName'] = ''
 			alert_data['LogonType'] = ''
 			alert_data['message'] = ''
+			alert_data['WorkstationName'] = ''
 
 			if alert_data['event_id'] == '21' or hit.Event.System.EventID.text == '25':					
 				alert_data['IpAddress'] = hit.Event.UserData.EventXML.Address
@@ -147,14 +171,14 @@ class LogonHistory(ElasticScenario):
 				alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.LogonType)
 				alert_data['TargetDomainName'] = hit.Event.EventData.Data.TargetDomainName
 				alert_data['TargetUserName'] = hit.Event.EventData.Data.TargetUserName
+				alert_data['WorkstationName'] = hit.Event.EventData.Data.WorkstationName
 				if alert_data['event_id'] == '4625':
 					message = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()))
 				else:
 					message = 'Successful connection'
 				alert_data['message'] = message
 
-			alert = Alert(message = message, data=alert_data)
-			self.alerts.append(alert)
+			self.alert.add_alert([timestamp, computer, alert_data['message'], alert_data['LogonType'], '{}\\{}'.format(alert_data['TargetDomainName'], alert_data['TargetUserName']), alert_data['IpAddress'], alert_data['WorkstationName'] ])
 
 """
 	Extract logon history from LocalSessionManager logs.
@@ -183,95 +207,94 @@ class RDPHistory(ElasticScenario):
 				message = 'Successful connection' if alert_data['event_id'] == '21' else 'Successful reconnection'
 				alert_data['message'] = message
 
-				alert = Alert(message = message, data=alert_data)
-				self.alerts.append(alert)
+				# alert = Alert(message = message, data=alert_data)
+				# self.alerts.append(alert)
 
-# TODO		
-class StatLogon(ElasticScenario):
-	help = 'Extract stats about logon'
+# class StatLogon(ElasticScenario):
+# 	help = 'Extract stats about logon'
 
-	def __init__(self):
-		super(StatLogon, self).__init__()
+# 	def __init__(self):
+# 		super(StatLogon, self).__init__()
 
-	def process(self):
-		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
-		self.search = self.search.query(sec_logon)
-		self.resp = self.search.execute()
+# 	def process(self):
+# 		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
+# 		self.search = self.search.query(sec_logon)
+# 		self.resp = self.search.execute()
 
-		print('Total hits: {}'.format(self.resp.hits.total))
+# 		print('Total hits: {}'.format(self.resp.hits.total))
 
-		process = set()
-		"""
-		  Total sucessful connections:
-		  Total Failed connections:
-		  Process used for logon:
-		  	- XXXXX : XX connections
-		  	- XXXXX : XX connections
-		  	- XXXXX : XX connections
-		  Account used for logon:
-		  	- ACOUNT | FIRST TIME | LAST TIME | NB_CO | IPs | NB_FAIL | NB_SUCCESS
-		"""
-		stat_per_comp = {
-			'success' : 0,
-			'fail' : 0,
-			'process' : {},
-			'account' : {}
-		}
+# 		process = set()
+# 		"""
+# 		  Total sucessful connections:
+# 		  Total Failed connections:
+# 		  Process used for logon:
+# 		  	- XXXXX : XX connections
+# 		  	- XXXXX : XX connections
+# 		  	- XXXXX : XX connections
+# 		  Account used for logon:
+# 		  	- ACOUNT | FIRST TIME | LAST TIME | NB_CO | IPs | NB_FAIL | NB_SUCCESS
+# 		"""
+# 		stat_per_comp = {
+# 			'success' : 0,
+# 			'fail' : 0,
+# 			'process' : {},
+# 			'account' : {}
+# 		}
 
-		stat_per_account = {
-			'first_seen' : None,
-			'last_seen' : None,
-			'nb_connections' : 0,
-			'nb_fail' : 0,
-			'ips' : {}
-		}
-		stats = {}
+# 		stat_per_account = {
+# 			'first_seen' : None,
+# 			'last_seen' : None,
+# 			'nb_connections' : 0,
+# 			'nb_fail' : 0,
+# 			'ips' : {}
+# 		}
+# 		stats = {}
 
 
-		print('==========================================================')
-		print('===  Warning this is only based on 4624 and 4625 events ==')
-		print('==========================================================')
+# 		print('==========================================================')
+# 		print('===  Warning this is only based on 4624 and 4625 events ==')
+# 		print('==========================================================')
 
-		for hit in self.search.scan():
-			stat = stats.get(hit.Event.System.Computer, copy.deepcopy(stat_per_comp))
+# 		for hit in self.search.scan():
+# 			stat = stats.get(hit.Event.System.Computer, copy.deepcopy(stat_per_comp))
 			
-			account_name = '{}\\{}'.format(hit.Event.EventData.Data.TargetDomainName, hit.Event.EventData.Data.TargetUserName)
-			acc = stat['account'].get(account_name, copy.deepcopy(stat_per_account))
-			acc['nb_connections'] = acc['nb_connections'] + 1
-			nb_co = acc['ips'].get(hit.Event.EventData.Data.IpAddress, 0)
-			acc['ips'][hit.Event.EventData.Data.IpAddress] = nb_co + 1
+# 			account_name = '{}\\{}'.format(hit.Event.EventData.Data.TargetDomainName, hit.Event.EventData.Data.TargetUserName)
+# 			acc = stat['account'].get(account_name, copy.deepcopy(stat_per_account))
+# 			acc['nb_connections'] = acc['nb_connections'] + 1
+# 			nb_co = acc['ips'].get(hit.Event.EventData.Data.IpAddress, 0)
+# 			acc['ips'][hit.Event.EventData.Data.IpAddress] = nb_co + 1
 
-			evt_date = hit.Event.System.TimeCreated.SystemTime
-			if not acc['first_seen']:
-				acc['first_seen'] = evt_date
-				acc['last_seen'] = evt_date
-			else:
-				acc['first_seen'] = min(evt_date, acc['first_seen'])
-				acc['last_seen'] = max(evt_date, acc['last_seen'])
+# 			evt_date = hit.Event.System.TimeCreated.SystemTime
+# 			if not acc['first_seen']:
+# 				acc['first_seen'] = evt_date
+# 				acc['last_seen'] = evt_date
+# 			else:
+# 				acc['first_seen'] = min(evt_date, acc['first_seen'])
+# 				acc['last_seen'] = max(evt_date, acc['last_seen'])
 
-			if hit.Event.System.EventID.text == '4624':
-				stat['success'] = stat['success'] + 1
-			if hit.Event.System.EventID.text == '4625':
-				acc['nb_fail'] = acc['nb_fail'] + 1				
-				stat['fail'] = stat['fail'] + 1
+# 			if hit.Event.System.EventID.text == '4624':
+# 				stat['success'] = stat['success'] + 1
+# 			if hit.Event.System.EventID.text == '4625':
+# 				acc['nb_fail'] = acc['nb_fail'] + 1				
+# 				stat['fail'] = stat['fail'] + 1
 
-			if 'ProcessName' in hit.Event.EventData:
-				proc_stat = stat['process'].get(hit.Event.EventData.Data.ProcessName, 0)
-				stat['process'][hit.Event.EventData.Data.ProcessName] = proc_stat + 1
+# 			if 'ProcessName' in hit.Event.EventData:
+# 				proc_stat = stat['process'].get(hit.Event.EventData.Data.ProcessName, 0)
+# 				stat['process'][hit.Event.EventData.Data.ProcessName] = proc_stat + 1
 
-			stat['account'][account_name] = acc
-			stats[hit.Event.System.Computer] = stat
+# 			stat['account'][account_name] = acc
+# 			stats[hit.Event.System.Computer] = stat
 
 		
 
-		for computer, stat in stats.items():
-			print('======= Logon Stats for {} ======='.format(computer))
-			accounts = stat['account']
-			stat['account'] = None
-			print(json.dumps(stats, indent = 2))
-			header = ['Name', 'First Seen', 'Last Seen', 'Total Connections', 'IPs', 'Nb Fail']
-			print('|'.join(header))
-			for account, acc_stat in accounts.items():
-				print('|'.join([account, acc_stat['first_seen'], acc_stat['last_seen'], str(acc_stat['nb_connections']), ';'.join(acc_stat['ips'].keys()),  str(acc_stat['nb_fail']) ] ))
+# 		for computer, stat in stats.items():
+# 			print('======= Logon Stats for {} ======='.format(computer))
+# 			accounts = stat['account']
+# 			stat['account'] = None
+# 			print(json.dumps(stats, indent = 2))
+# 			header = ['Name', 'First Seen', 'Last Seen', 'Total Connections', 'IPs', 'Nb Fail']
+# 			print('|'.join(header))
+# 			for account, acc_stat in accounts.items():
+# 				print('|'.join([account, acc_stat['first_seen'], acc_stat['last_seen'], str(acc_stat['nb_connections']), ';'.join(acc_stat['ips'].keys()),  str(acc_stat['nb_fail']) ] ))
 
 
