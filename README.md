@@ -23,10 +23,7 @@ Anomaly detection scripts perform queries on elasticsearch database and export u
 Dependancies
 --------
 
-TODO
-```
-TODO
-```
+See requirements.txt
 
 Configuration
 --------
@@ -80,7 +77,7 @@ Ingest a folder containing evtx files into `winevt-test` index with adding a tag
 python3 import_evtx_multi.py --folder /data/evtx/folder --es_index winevt-test --es_ip localhost --tag CASE_NAME --meta '{"batch_id" : "plop"}'
 ```
 
-Ingest a folder containing evtx files into `winevt-test` index with message string resolution (see https://github.com/libyal/winevt-kb/wiki/Scripts)
+Ingest a folder containing evtx files into `winevt-test` index with message string resolution (see https://github.com/libyal/winevt-kb/wiki/Scripts for building the db)
 ```
 python3 import_evtx_multi.py --folder /data/evtx/folder --es_index winevt-test --es_ip localhost -d /data/winevt-kb-db/winevt-kb.db
 ```
