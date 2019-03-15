@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import logging
 
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Search
@@ -7,20 +8,41 @@ from collections import OrderedDict
 FIELD_EVENTID = 'Event.System.EventID.text.keyword'
 FIELD_CHANNEL = 'Event.System.Channel.keyword'
 
-class Alert(object):
-
-	def __init__(self, message = '', data =  OrderedDict()):
-		self.message = message
+class Alerts(object):
+	def __init__(self, header = [], data = []):
+		self.header = header
 		self.data = data
 
-	def __getitem__(self, idx):
-		return self.data[idx]
+
+	def init(self, header):
+		if not header:
+			logging.critical('Header is empty... abort')
+			return False
+
+		self.header = header
+		self.sizes = [len(x) for x in header]
+		return True
+
+	def add_alert(self, alert):
+		if not self.header:
+			logging.critical('Header is empty... abort')
+			return False
+
+		if len(alert) != len(self.header):
+			logging.critical('Header len [{}] is different from alert len [{}]....abort'.format(len(self.header), len(alert)))
+			return False
+
+		self.data.append(alert)
+
+		# the idea is to get the max size for each fields
+		self.sizes = [ max(len(str(x)), self.sizes[idx]) for idx, x in enumerate(alert)]
+
 
 class Scenar(object):
 	"""docstring for Scenar"""
 	def __init__(self):
 		super(Scenar).__init__()
-		self.alerts = []
+		self.alert = Alerts()
 		
 	def add_argument(self, parser):
 		pass

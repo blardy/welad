@@ -47,7 +47,7 @@ class Process(object):
 
 	def pretty_print(self, indent = 4, details = False):
 		s = ' ' * indent 
-		s += '|=> ' if not details else '- [{}][{}] '.format(self.system.split('.')[0], self.begin)
+		s += '\\=> ' if not details else '- [{}][{}] '.format(self.system.split('.')[0], self.begin)
 		s += self.image_path + ' (pid: {}; ppid:{})'.format(int(self.pid, 16), int(self.ppid, 16))
 		if details:
 			s += '  [created by {}\\{} ({}) Logon ID: {}]'.format(self.logon_domain, self.logon_account, self.logon_sid, self.logon_id)
@@ -92,8 +92,6 @@ class Process(object):
 					logging.info('Most suitable exit point is : {}'.format(most_suitable[1]))
 				else:
 					logging.info('No suitable exit point found :')
-
-
 		except:
 			return False
 		return True
@@ -201,14 +199,16 @@ class ProcessStat(ElasticScenario):
 		.metric('last_process', 'max', field='Event.System.TimeCreated.SystemTime')
 		self.resp = self.search.execute()
 
-		print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
-		print( '|{: ^30}|{: ^42}|{: ^30}|{: ^15}|{: ^30}|{: ^30}|'.format('System', 'UserName', 'Session ID', 'Nb Process', 'First Process', 'Last Process') )
-		print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
+		self.alert.init(['System', 'UserName', 'Session ID', 'Nb Process', 'First Process', 'Last Process'])
+		# print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
+		# print( '|{: ^30}|{: ^42}|{: ^30}|{: ^15}|{: ^30}|{: ^30}|'.format('System', 'UserName', 'Session ID', 'Nb Process', 'First Process', 'Last Process') )
+		# print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
 		for computer_data in self.resp.aggregations.computer:
 			for username_data in computer_data.username:
 				for logon_id_data in username_data.logon_id:
-					print( '|{: ^30}|{: ^42}|{: ^30}|{: ^15}|{: ^30}|{: ^30}|'.format(computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string) )
-		print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
+					self.alert.add_alert([computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string])
+					# print( '|{: ^30}|{: ^42}|{: ^30}|{: ^15}|{: ^30}|{: ^30}|'.format(computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string) )
+		# print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
 
 
 class ProcessTree(ElasticScenario):
@@ -373,11 +373,12 @@ class ProcessTree(ElasticScenario):
 				PROCESS_TREE[current_process.uid()] = current_process
 
 		#
-		#  4 - Print !!!
+		#  4 - Raise alerts // print... !!!
 		#
-
+		self.alert.init(['System', 'Process', 'Date / Time (UTC)', 'username', 'Tree'])
 		root_processes = [process for uid, process in PROCESS_TREE.items()]
 		for process in sorted(root_processes, key=lambda process: process.begin):
 			if not self.args.process_with_child_only or len(process.childs) > 0:
-				print(process.pretty_print(details=True))
+				self.alert.add_alert([process.system.split('.')[0], process.image_path, process.begin, process.logon_account, process.pretty_print(details=False)])
+
 				

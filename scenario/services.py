@@ -40,7 +40,9 @@ class MaliciousPowerShell(ElasticScenario):
 		self.search =self.search.query(services)
 		self.resp = self.search.execute()
 
-		print('Date / Time (UTC)|Computer Name|Channel|EventID|Description (short)|Service Name|SID|Payload Analysis|IP|Port|Payload (Raw)|Payload (Decoded)')
+		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Channel', 'EventID', 'Description (short)', 'Service Name', 'SID', 'Payload Analysis', 'IP', 'Port', 'Payload (Raw)', 'Payload (Decoded)'])
+
+		# print('Date / Time (UTC)|Computer Name|Channel|EventID|Description (short)|Service Name|SID|Payload Analysis|IP|Port|Payload (Raw)|Payload (Decoded)')
 		for hit in self.search.scan():
 			computer = hit.Event.System.Computer
 			timestamp = hit.Event.System.TimeCreated.SystemTime
@@ -68,7 +70,8 @@ class MaliciousPowerShell(ElasticScenario):
 			if is_decoded:
 				mess, ip, port = analyze_payload(decoded_payload)
 
-			print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(timestamp, computer, channel, eventid, desc, '-', sid, mess, ip, port, _payload,decoded_payload))
+			# print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(timestamp, computer, channel, eventid, desc, '-', sid, mess, ip, port, _payload,decoded_payload))
+			self.alert.add_alert([timestamp, computer, channel, eventid, desc, '-', sid, mess, ip, port, _payload, decoded_payload])
 
 		services = MultiMatch(query='7045', fields=[FIELD_EVENTID]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
 		search = Search(using=self.client, index=self.index)
@@ -91,7 +94,8 @@ class MaliciousPowerShell(ElasticScenario):
 			if is_decoded:
 				mess, ip, port = analyze_payload(decoded_payload)
 
-			print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(timestamp, computer, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload))
+			# print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(timestamp, computer, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload))
+			self.alert.add_alert([timestamp, computer, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
 
 		services = MultiMatch(query='4697', fields=[FIELD_EVENTID]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
 		search = Search(using=self.client, index=self.index)
@@ -113,7 +117,8 @@ class MaliciousPowerShell(ElasticScenario):
 			if is_decoded:
 				mess, ip, port = analyze_payload(decoded_payload)
 
-			print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(timestamp, computer, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload))
+			# print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(timestamp, computer, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload))
+			self.alert.add_alert([timestamp, computer, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
 
 
 			
@@ -128,10 +133,6 @@ class BITSService(ElasticScenario):
 	def __init__(self):
 		super(BITSService, self).__init__()
 
-	def add_argument(self, parser):
-		super(BITSService, self).add_argument(parser)
-		parser.add_argument('--verbose', action='store_true')
-
 	def process(self):
 		bits_service = (MultiMatch(query='59', fields=[FIELD_EVENTID]) | MultiMatch(query='60', fields=[FIELD_EVENTID]) | MultiMatch(query='61', fields=[FIELD_EVENTID]) ) \
 			& MultiMatch(query='Microsoft-Windows-Bits-Client/Operational', fields=[FIELD_CHANNEL])
@@ -139,6 +140,8 @@ class BITSService(ElasticScenario):
 		self.search.aggs.bucket('computer', A('terms', field='Event.System.Computer.keyword'))\
 			.bucket('bits', 'terms', field='Event.EventData.Data.url.keyword')
 
+
+		self.alert.init(['Computer Name', 'Targeted URL', 'Nb Hits'])
 		self.resp = self.search.execute()
 		for computer_data in self.resp.aggregations.computer:
 			for bits_data in computer_data.bits:
@@ -147,9 +150,7 @@ class BITSService(ElasticScenario):
 				alert_data['URL'] = bits_data.key
 				alert_data['count'] = bits_data.doc_count
 
-				alert = Alert(data=alert_data)
-				self.alerts.append(alert)
-
+				self.alert.add_alert([computer_data.key, bits_data.key, bits_data.doc_count])
 
 """
 	Should be done using aggregation !
