@@ -10,7 +10,7 @@ import copy
 """
 	OPTIM:
 		+ 
-		
+
 	SCENARIO:
 		+ Stats
 			- About logon
@@ -193,12 +193,21 @@ class RDPHistory(ElasticScenario):
 		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) & \
 			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
 
+		if self.filter:
+			rdp_logon = rdp_logon & self.filter
+
+		logging.info(rdp_logon)
 		self.search = self.search.query(rdp_logon)
 		self.resp = self.search.execute()
 
+
+		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Username', 'IP Address'])
+
 		for hit in self.search.scan():
 			if hit.Event.System.EventID.text == '21' or hit.Event.System.EventID.text == '25':
-				alert_data = OrderedDict()
+				computer = hit.Event.System.Computer
+				timestamp = hit.Event.System.TimeCreated.SystemTime
+				alert_data = {}
 				alert_data['SystemTime'] = hit.Event.System.TimeCreated.SystemTime
 				alert_data['Computer'] = hit.Event.System.Computer
 				alert_data['event_id'] = hit.Event.System.EventID.text
@@ -207,8 +216,7 @@ class RDPHistory(ElasticScenario):
 				message = 'Successful connection' if alert_data['event_id'] == '21' else 'Successful reconnection'
 				alert_data['message'] = message
 
-				# alert = Alert(message = message, data=alert_data)
-				# self.alerts.append(alert)
+				self.alert.add_alert([timestamp, computer, alert_data['message'], 'Remote Desktop', alert_data['TargetUserName'], alert_data['IpAddress']])
 
 # class StatLogon(ElasticScenario):
 # 	help = 'Extract stats about logon'
