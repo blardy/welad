@@ -8,6 +8,13 @@ import base64
 import gzip
 import binascii
 
+def _get_max_len_by_line(message):
+	max_len = 0
+	for m in message.split('\n'):
+		max_len = max(max_len, len(m))
+
+	return max_len
+
 def _get_date(str_time):
 	time_formats = ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]
 	time = None
