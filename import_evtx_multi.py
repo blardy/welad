@@ -23,7 +23,6 @@ from Evtx.Views import evtx_file_xml_view
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 import xmltodict
-import queue
 import os
 import uuid
 
