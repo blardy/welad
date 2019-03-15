@@ -4,6 +4,9 @@ import logging
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Search
 from collections import OrderedDict
+from scenario.utils import _get_max_len_by_line
+
+from elasticsearch_dsl.query import MultiMatch, Range
 
 FIELD_EVENTID = 'Event.System.EventID.text.keyword'
 FIELD_CHANNEL = 'Event.System.Channel.keyword'
@@ -35,7 +38,7 @@ class Alerts(object):
 		self.data.append(alert)
 
 		# the idea is to get the max size for each fields
-		self.sizes = [ max(len(str(x)), self.sizes[idx]) for idx, x in enumerate(alert)]
+		self.sizes = [ max(_get_max_len_by_line(str(x)), self.sizes[idx]) for idx, x in enumerate(alert)]
 
 
 class Scenar(object):
@@ -66,6 +69,11 @@ class ElasticScenario(Scenar):
 		parser.add_argument('--es_user', default='', help="")
 		parser.add_argument('--es_password', default='', help="")
 
+		parser.add_argument('--system', required=False, help='Filter on system name (ie: plop-desktop)')
+		parser.add_argument('--from', dest='_from', required=False, help='YYYY-MM-DDTHH:MM:SS')
+		parser.add_argument('--to', dest='_to',required=False, help='YYYY-MM-DDTHH:MM:SS')
+		parser.add_argument('--filter', required=False, help='Custom filter "Event.EventData.Data.SubjectUserName.keyword:plop"', action='append')
+
 
 	def init(self, args):
 		self.args = args
@@ -74,6 +82,31 @@ class ElasticScenario(Scenar):
 
 		self.client = Elasticsearch([self.elastic], http_auth=(args.es_user, args.es_password), timeout=30)
 		self.search = Search(using=self.client, index=self.index)
+
+		self.filter = None
+		filters = []
+		if args._from and args._to:
+			filters.append(Range(** {'@timestamp': {'gte': args._from, 'lte':  args._to}}))
+		elif args._from:
+			filters.append(Range(** {'@timestamp': {'gte': args._from}}))
+		elif args._to:
+			filters.append(Range(** {'@timestamp': {'lte': args._to}}))
+
+		if args.system:
+			filters.append(MultiMatch(query=args.system, fields=['Event.System.Computer']))
+		if args.filter:
+			for f in args.filter:
+				data = f.split(':')
+				field = data[0]
+				value = ':'.join(data[1:]) # in case there is ':' char in the value...
+				filters.append(MultiMatch(query=value, fields=[field]))
+
+		if filters:
+			self.filter = filters[0]
+			for f in filters[1:]:
+				self.filter &= f
+
+		logging.info(self.filter)
 
 	def process(self):
 		pass

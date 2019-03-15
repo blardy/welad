@@ -5,7 +5,6 @@ from elasticsearch_dsl import A
 from scenario.scenario import *
 from scenario.utils import _get_date
 
-
 import logging
 import json
 
@@ -144,6 +143,7 @@ class Process(object):
 		return self.childs
 
 class ProcessStat(ElasticScenario):
+	help = 'Prints stats about processes'
 	"""Prints stats about processes
 	 ______________________________________________________________________________________________________________________________________________________________________________________
 	|            System            |                 UserName                 |          Session ID          |  Nb Process   |        First Process         |         Last Process         |
@@ -164,33 +164,25 @@ class ProcessStat(ElasticScenario):
 
 	def add_argument(self, parser):
 		super(ProcessStat, self).add_argument(parser)
-		parser.add_argument('--batch_filter')
 		parser.add_argument('--process_name', required=False, help='Filter on field Event.EventData.Data.NewProcessName (ie: powershell.exe)')
 		parser.add_argument('--logon_id', required=False, help='Filter on logon Session ID (ie: 0x000000004e9f7608)')
 		parser.add_argument('--username', required=False, help='Filter on logon username (ie: plop)')
-		parser.add_argument('--system', required=False, help='Filter on system name (ie: plop-desktop)')
-		parser.add_argument('--_from', required=False, help='YYYY-MM-DDTHH:MM:SS')
-		parser.add_argument('--_to', required=False, help='YYYY-MM-DDTHH:MM:SS')
-		parser.add_argument('--filter', required=False, help='Custom filter "Event.EventData.Data.SubjectUserName.keyword:plop"')
 
 	def process(self):
 		processes_search =  MultiMatch(query='4688', fields=[FIELD_EVENTID])
-		if self.args.system:
-			processes_search = processes_search & MultiMatch(query=self.args.system, fields=['Event.System.Computer'])
 		if self.args.username:
 			processes_search = processes_search & MultiMatch(query=self.args.username, fields=['Event.EventData.Data.SubjectUserName.keyword'])
 		if self.args.logon_id:
 			processes_search = processes_search & MultiMatch(query=self.args.logon_id, fields=['Event.EventData.Data.SubjectLogonId.keyword'])
 		if self.args.process_name:
 			processes_search = processes_search & MultiMatch(query=self.args.process_name, fields=['Event.EventData.Data.NewProcessName'])
-		if self.args.batch_filter:
-			processes_search = processes_search & MultiMatch(query=self.args.batch_filter, fields=['batch_id.keyword'])
-		if self.args._from and self.args._to:
-			processes_search = processes_search & Range(** {'@timestamp': {'gte': self.args._from, 'lte': self.args._to}})
+
+		if self.filter:
+			processes_search &= self.filter
+
 
 		logging.info(' => query: {}'.format(processes_search))
 		self.search =self.search.query(processes_search)
-
 
 		self.search.aggs.bucket('computer', A('terms', field='Event.System.Computer.keyword'))\
 		.bucket('username', 'terms', field='Event.EventData.Data.SubjectUserName.keyword')\
@@ -200,34 +192,27 @@ class ProcessStat(ElasticScenario):
 		self.resp = self.search.execute()
 
 		self.alert.init(['System', 'UserName', 'Session ID', 'Nb Process', 'First Process', 'Last Process'])
-		# print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
-		# print( '|{: ^30}|{: ^42}|{: ^30}|{: ^15}|{: ^30}|{: ^30}|'.format('System', 'UserName', 'Session ID', 'Nb Process', 'First Process', 'Last Process') )
-		# print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
 		for computer_data in self.resp.aggregations.computer:
 			for username_data in computer_data.username:
 				for logon_id_data in username_data.logon_id:
 					self.alert.add_alert([computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string])
-					# print( '|{: ^30}|{: ^42}|{: ^30}|{: ^15}|{: ^30}|{: ^30}|'.format(computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string) )
-		# print( ' {:_^30}_{:_^42}_{:_^30}_{:_^15}_{:_^30}_{:_^30}'.format('', '', '', '', '', '') )
 
 
 class ProcessTree(ElasticScenario):
+	help = 'Rebuild process Tree'
+
 	def __init__(self):
 		super(ProcessTree, self).__init__()
 
 	def add_argument(self, parser):
 		super(ProcessTree, self).add_argument(parser)
-		parser.add_argument('--batch_filter')
+
 		parser.add_argument('--process_name', required=False, help='Filter on field Event.EventData.Data.NewProcessName (ie: powershell.exe)')
 		parser.add_argument('--logon_id', required=False, help='Filter on logon Session ID (ie: 0x000000004e9f7608)')
 		parser.add_argument('--username', required=False, help='Filter on logon username (ie: plop)')
-		parser.add_argument('--system', required=False, help='Filter on system name (ie: plop-desktop)')
-		parser.add_argument('--_from', required=False, help='YYYY-MM-DDTHH:MM:SS')
-		parser.add_argument('--_to', required=False, help='YYYY-MM-DDTHH:MM:SS')
 		parser.add_argument('--process_with_child_only', action='store_true', help='only prints processes that have childs')
 
 	def find_all_possible_exit_points(self, process_list, max_query_size=100):
-
 		exit_points = {}
 
 		exit_query = MultiMatch(query='4689', fields=[FIELD_EVENTID])
@@ -287,18 +272,16 @@ class ProcessTree(ElasticScenario):
 
 	def process(self):
 		processes_search =  MultiMatch(query='4688', fields=[FIELD_EVENTID])
-		if self.args.system:
-			processes_search = processes_search & MultiMatch(query=self.args.system, fields=['Event.System.Computer'])
+
 		if self.args.username:
 			processes_search = processes_search & MultiMatch(query=self.args.username, fields=['Event.EventData.Data.SubjectUserName.keyword'])
 		if self.args.logon_id:
 			processes_search = processes_search & MultiMatch(query=self.args.logon_id, fields=['Event.EventData.Data.SubjectLogonId.keyword'])
 		if self.args.process_name:
 			processes_search = processes_search & MultiMatch(query=self.args.process_name, fields=['Event.EventData.Data.NewProcessName'])
-		if self.args.batch_filter:
-			processes_search = processes_search & MultiMatch(query=self.args.batch_filter, fields=['batch_id.keyword'])
-		if self.args._from and self.args._to:
-			processes_search = processes_search & Range(** {'@timestamp': {'gte': self.args._from, 'lte': self.args._to}})
+
+		if self.filter:
+			processes_search &= self.filter
 
 		logging.info(' => query: {}'.format(processes_search))
 		self.search =self.search.query(processes_search)
@@ -381,4 +364,3 @@ class ProcessTree(ElasticScenario):
 			if not self.args.process_with_child_only or len(process.childs) > 0:
 				self.alert.add_alert([process.system.split('.')[0], process.image_path, process.begin, process.logon_account, process.pretty_print(details=False)])
 
-				
