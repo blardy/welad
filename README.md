@@ -20,7 +20,7 @@ A few improvements / mofications were done:
 
 Anomaly detection scripts perform queries on elasticsearch database and export useful information (eg. suspicious logon)
 
-Elastcisearch Configuration
+Elasticsearch Configuration
 --------
 Depending on the amount of different event type inserted into a same EL index, you might want to increase the `total_fields.limit` of the index.
 This operation can be performed with a `PUT` request to `_template/template_1`:
