@@ -26,7 +26,7 @@ class ConsoleWriter(Writer):
 
 		for data in alerts.data:
 			# Q&D we want all data ahving the same number of newline for printing purposes
-			data = [str(x).strip() for x in data]
+			data = [str(x).rstrip() for x in data]
 			max_newline = 0
 			for value in data:
 				max_newline = max( len(value.split('\n')), max_newline)

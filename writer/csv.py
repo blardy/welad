@@ -18,7 +18,7 @@ class CSVWriter(Writer):
 
 
 		for data in alerts.data:
-			data = [str(x).strip() for x in data]
+			data = [str(x).rstrip() for x in data]
 			if not self.multiline:
 				data = [x.replace('\r', '<br>').replace('\n', '<br>') for x in data]
 
