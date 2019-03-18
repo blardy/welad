@@ -23,7 +23,7 @@ import json
 
 class Process(object):
 	"""Process object 4688 + 4689 docs"""
-	def __init__(self, system, image_path, pid, ppid, begin, end, logon_id, logon_domain, logon_account, logon_sid):
+	def __init__(self, system, image_path, pid, ppid, begin, end, logon_id, logon_domain, logon_account, logon_sid, parent_name = None):
 		super(Process, self).__init__()
 		self.system = system
 		self.pid = pid
@@ -35,6 +35,7 @@ class Process(object):
 		self.logon_account = logon_account
 		self.logon_sid = logon_sid
 		self.image_path = image_path
+		self.parent_name = parent_name
 
 		self.childs = None
 
@@ -42,14 +43,31 @@ class Process(object):
 		return '{}-pid:{}-ppid:{}-begin:{}'.format(self.system, self.pid, self.ppid, self.begin)
 
 	def __str__(self):
-		return 'Process "{}" spawned by {}\\{} ({})'.format(self.image_path, self.logon_domain, self.logon_account, self.logon_sid)
+		return self.image_path + ' (pid: {}; ppid:{})'.format(int(self.pid, 16), int(self.ppid, 16))
+
+	def visit_childs(self, indent = 2, root = False):
+		s = ' ' * indent + '\\=> '
+		s += self.image_path + ' (pid: {}; ppid:{})'.format(int(self.pid, 16), int(self.ppid, 16))
+
+		if not root:
+			yield self, s
+
+		if self.childs:
+			child = [child_process for child_uid, child_process in self.childs.items()]
+
+			for child_process in sorted(child, key=lambda process: process.begin):
+				yield from child_process.visit_childs(indent + 2)
 
 	def pretty_print(self, indent = 4, details = False):
 		s = ' ' * indent 
-		s += '\\=> ' if not details else '- [{}][{}] '.format(self.system.split('.')[0], self.begin)
+		if details and self.parent_name and self.parent_name != 'None':
+			s += '[{}]\n'.format(self.parent_name)
+			indent += 2
+			s += ' ' * indent 
+
+		# s += '\\=> ' if not details else '- [{}][{}] '.format(self.system.split('.')[0], self.begin)
+		s += '\\=> ' #if not details else '- [{}][{}] '.format(self.system.split('.')[0], self.begin)
 		s += self.image_path + ' (pid: {}; ppid:{})'.format(int(self.pid, 16), int(self.ppid, 16))
-		if details:
-			s += '  [created by {}\\{} ({}) Logon ID: {}]'.format(self.logon_domain, self.logon_account, self.logon_sid, self.logon_id)
 
 		s += '\n'
 
@@ -318,8 +336,13 @@ class ProcessTree(ElasticScenario):
 			logon_account = hit.Event.EventData.Data.SubjectUserName
 			logon_sid = hit.Event.EventData.Data.SubjectUserSid
 
+			try:
+				parent_name = hit.Event.EventData.Data.ParentProcessName
+			except:
+				parent_name = None
+
 			# Create process object (missing the end date...)
-			current_process = Process(computer, process, pid, ppid, timestamp, None, logon_id, logon_domain, logon_account, logon_sid)
+			current_process = Process(computer, process, pid, ppid, timestamp, None, logon_id, logon_domain, logon_account, logon_sid, parent_name=parent_name)
 			PROCESS_ALL.append(current_process)
 
 		#
@@ -361,6 +384,13 @@ class ProcessTree(ElasticScenario):
 		self.alert.init(['System', 'Process', 'Date / Time (UTC)', 'username', 'Tree'])
 		root_processes = [process for uid, process in PROCESS_TREE.items()]
 		for process in sorted(root_processes, key=lambda process: process.begin):
+
+			self.alert.add_alert([process.system.split('.')[0], process.image_path, process.begin, process.logon_account, str(process)])
+
 			if not self.args.process_with_child_only or len(process.childs) > 0:
-				self.alert.add_alert([process.system.split('.')[0], process.image_path, process.begin, process.logon_account, process.pretty_print(details=False)])
+				# self.alert.add_alert([process.system.split('.')[0], process.image_path, process.begin, process.logon_account, process.pretty_print(details=True)])
+				for child, mess in process.visit_childs(root=True):
+					self.alert.add_alert([child.system.split('.')[0], '', child.begin, child.logon_account, mess])
+					# print(mess)
+
 
