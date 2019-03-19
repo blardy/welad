@@ -69,6 +69,9 @@ class MaliciousPowerShell(ElasticScenario):
 
 		services = MultiMatch(query='7045', fields=[FIELD_EVENTID]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
 		search = Search(using=self.client, index=self.index)
+		if self.filter:
+			services &= self.filter
+
 		search = search.query(services)
 
 		resp = search.execute()
@@ -92,7 +95,11 @@ class MaliciousPowerShell(ElasticScenario):
 		services = MultiMatch(query='4697', fields=[FIELD_EVENTID]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
 		search = Search(using=self.client, index=self.index)
 
+		if self.filter:
+			services &= self.filter
+
 		search = search.query(services)
+
 		resp = search.execute()
 		for hit in search.scan():
 			computer = hit.Event.System.Computer
