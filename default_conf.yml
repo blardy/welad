@@ -1,0 +1,38 @@
+
+#
+# Default configuration file for Welad
+#
+
+ElasticScenario:
+  es_bucket_size: 9000
+  es_timeout: 60
+
+  es_host: localhost
+  es_index: winevt-lab
+  es_user: elastic
+  es_password: PutYourPasswordHere
+
+  evt_time_field: Event.System.TimeCreated.SystemTime
+  evt_system_field: Event.System.Computer
+  
+    
+SuspiciousProcess:
+  evt_image_path: Event.EventData.Data.NewProcessName
+  blacklist:
+    # RCE
+    - psexec.exe
+    - psexesvc.exe
+    - winexesvc.exe
+    
+    # Creds
+    - mimikatz.exe
+    - pwdumpx.exe
+    - pwdump.exe
+
+    # Proxy
+    - socat.exe
+    
+    # Path
+    - temp
+    - appdata
+
