@@ -13,9 +13,10 @@ FIELD_EVENTID = 'Event.System.EventID.text.keyword'
 FIELD_CHANNEL = 'Event.System.Channel.keyword'
 
 class Alerts(object):
-	def __init__(self, header = [], data = []):
+	def __init__(self, header = [], data = [], please_do_not_sort_me=False):
 		self.header = header
 		self.data = data
+		self.please_do_not_sort_me = please_do_not_sort_me
 
 
 	def init(self, header):
@@ -118,13 +119,13 @@ class ElasticScenario(Scenar):
 		self.filter = None
 		filters = []
 
-		evt_time_field = self._get_conf('ElasticScenario', 'evt_time_field', 'Event.System.TimeCreated.SystemTime')
+		self.evt_time_field = self._get_conf('ElasticScenario', 'evt_time_field', 'Event.System.TimeCreated.SystemTime')
 		if args._from and args._to:
-			filters.append(Range(** {evt_time_field: {'gte': args._from, 'lte':  args._to}}))
+			filters.append(Range(** {self.evt_time_field: {'gte': args._from, 'lte':  args._to}}))
 		elif args._from:
-			filters.append(Range(** {evt_time_field: {'gte': args._from}}))
+			filters.append(Range(** {self.evt_time_field: {'gte': args._from}}))
 		elif args._to:
-			filters.append(Range(** {evt_time_field: {'lte': args._to}}))
+			filters.append(Range(** {self.evt_time_field: {'lte': args._to}}))
 
 		if args.system:
 			filters.append(MultiMatch(query=args.system, fields=[self._get_conf('ElasticScenario', 'evt_system_field', 'Event.System.Computer')]))
