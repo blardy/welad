@@ -40,6 +40,7 @@ def init_parser(scenarios, writers):
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--tag', help="tag")
 	parser.add_argument("-v", "--verbosity", help="increase output verbosity", choices = LOG_VERBOSITY, default='WARNING')
+	parser.add_argument("-c", "--conf", type=argparse.FileType('r'), help="conf file")
 	parser.add_argument("-o", "--output", type=argparse.FileType('w'), help="output file", default=sys.stdout)
 	parser.add_argument("-w", "--writer", choices = writers, default=writers[0], help="writer to use")
 	
