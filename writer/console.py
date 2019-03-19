@@ -24,25 +24,46 @@ class ConsoleWriter(Writer):
 		self.out.write(format_str.format( *alerts.header ))
 		self.out.write(format_str.replace('|', '_').replace(' ', '_').format( *[ '' for x in alerts.header] ))
 
-		for data in sorted(alerts.data, key=lambda x: x[0]):
-			# Q&D we want all data ahving the same number of newline for printing purposes
-			data = [str(x).rstrip() for x in data]
-			max_newline = 0
-			for value in data:
-				max_newline = max( len(value.split('\n')), max_newline)
-			data = [ str(x) + '\n' * (max_newline-len(x.split('\n'))) for x in data]
+		if not alerts.please_do_not_sort_me:
+			for data in sorted(alerts.data, key=lambda x: x[0]):
+				# Q&D we want all data ahving the same number of newline for printing purposes
+				data = [str(x).rstrip() for x in data]
+				max_newline = 0
+				for value in data:
+					max_newline = max( len(value.split('\n')), max_newline)
+				data = [ str(x) + '\n' * (max_newline-len(x.split('\n'))) for x in data]
 
-			sub_line = []
-			for i in range(0, max_newline + 1):
-				sub_line.append([])
+				sub_line = []
+				for i in range(0, max_newline + 1):
+					sub_line.append([])
 
-			for field_data in data:
-				for line_idx, line in enumerate(field_data.split('\n')):
-					line = line
-					sub_line[line_idx].append(line)
+				for field_data in data:
+					for line_idx, line in enumerate(field_data.split('\n')):
+						line = line
+						sub_line[line_idx].append(line)
 
-			for line in sub_line:
-				if line:
-					self.out.write(data_str.format( *line ))
+				for line in sub_line:
+					if line:
+						self.out.write(data_str.format( *line ))
+		else:
+			for data in alerts.data:
+				# Q&D we want all data ahving the same number of newline for printing purposes
+				data = [str(x).rstrip() for x in data]
+				max_newline = 0
+				for value in data:
+					max_newline = max( len(value.split('\n')), max_newline)
+				data = [ str(x) + '\n' * (max_newline-len(x.split('\n'))) for x in data]
 
+				sub_line = []
+				for i in range(0, max_newline + 1):
+					sub_line.append([])
+
+				for field_data in data:
+					for line_idx, line in enumerate(field_data.split('\n')):
+						line = line
+						sub_line[line_idx].append(line)
+
+				for line in sub_line:
+					if line:
+						self.out.write(data_str.format( *line ))
 		self.out.write(format_str.replace('|', '_').replace(' ', '_').format( *[ '' for x in alerts.header] ))
