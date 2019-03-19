@@ -36,13 +36,21 @@ class MaliciousPowerShell(ElasticScenario):
 		self.search =self.search.query(services)
 		self.resp = self.search.execute()
 
-		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Channel', 'EventID', 'Description (short)', 'Service Name', 'SID', 'Payload Analysis', 'IP', 'Port', 'Payload (Raw)', 'Payload (Decoded)'])
+		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Tag', 'Channel', 'EventID', 'Description (short)', 'Service Name', 'SID', 'Payload Analysis', 'IP', 'Port', 'Payload (Raw)', 'Payload (Decoded)'])
 
 		for hit in self.search.scan():
 			computer = hit.Event.System.Computer
 			timestamp = hit.Event.System.TimeCreated.SystemTime
 			eventid = hit.Event.System.EventID.text
-			desc = hit.Event.Description.short.strip()
+			try:
+				desc = hit.Event.Description.short.strip()
+			except:
+				desc = ''
+			try:
+				tag = hit.tag.strip()
+			except:
+				tag = ''
+
 			channel = hit.Event.System.Channel.strip()
 			sid = hit.Event.System.Security.UserID.strip()
 			if eventid == '7045':
@@ -65,7 +73,7 @@ class MaliciousPowerShell(ElasticScenario):
 			if is_decoded:
 				mess, ip, port = analyze_payload(decoded_payload)
 
-			self.alert.add_alert([timestamp, computer, channel, eventid, desc, '-', sid, mess, ip, port, _payload, decoded_payload])
+			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc, '-', sid, mess, ip, port, _payload, decoded_payload])
 
 		services = MultiMatch(query='7045', fields=[FIELD_EVENTID]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
 		search = Search(using=self.client, index=self.index)
@@ -85,12 +93,17 @@ class MaliciousPowerShell(ElasticScenario):
 			servicename = hit.Event.EventData.Data.ServiceName.strip()
 			payload = hit.Event.EventData.Data.ImagePath.strip()
 
+			try:
+				tag = hit.tag.strip()
+			except:
+				tag = ''
+
 			mess, ip, port = 'unknown', '', ''
 			is_decoded, decoded_payload = decode_powershell(payload)
 			if is_decoded:
 				mess, ip, port = analyze_payload(decoded_payload)
 
-			self.alert.add_alert([timestamp, computer, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
+			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
 
 		services = MultiMatch(query='4697', fields=[FIELD_EVENTID]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
 		search = Search(using=self.client, index=self.index)
@@ -110,13 +123,16 @@ class MaliciousPowerShell(ElasticScenario):
 			sid = hit.Event.EventData.Data.SubjectUserSid.strip()
 			servicename = hit.Event.EventData.Data.ServiceName.strip()
 			payload = hit.Event.EventData.Data.ServiceFileName.strip()
-
+			try:
+				tag = hit.tag.strip()
+			except:
+				tag = ''
 			mess, ip, port = 'unknown', '', ''
 			is_decoded, decoded_payload = decode_powershell(payload)
 			if is_decoded:
 				mess, ip, port = analyze_payload(decoded_payload)
 
-			self.alert.add_alert([timestamp, computer, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
+			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
 
 
 			
