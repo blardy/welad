@@ -24,7 +24,7 @@ class ConsoleWriter(Writer):
 		self.out.write(format_str.format( *alerts.header ))
 		self.out.write(format_str.replace('|', '_').replace(' ', '_').format( *[ '' for x in alerts.header] ))
 
-		for data in alerts.data:
+		for data in sorted(alerts.data, key=lambda x: x[0]):
 			# Q&D we want all data ahving the same number of newline for printing purposes
 			data = [str(x).rstrip() for x in data]
 			max_newline = 0

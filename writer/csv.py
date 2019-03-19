@@ -17,7 +17,7 @@ class CSVWriter(Writer):
 		self.out.write('\n')
 
 
-		for data in alerts.data:
+		for data in sorted(alerts.data, key=lambda x: x[0]):
 			data = [str(x).rstrip() for x in data]
 			if not self.multiline:
 				data = [x.replace('\r', '<br>').replace('\n', '<br>') for x in data]
