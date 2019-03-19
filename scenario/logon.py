@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from elasticsearch_dsl.query import MultiMatch
+from elasticsearch_dsl.query import MultiMatch, Range, Match
+from elasticsearch_dsl import A
 from scenario.scenario import *
 
 import json
@@ -17,7 +18,7 @@ import copy
 			- About failed logon
 		+ Anomaly
 			- IP that registered with several Workstation Name
-			- User that connected from more tha X workstation
+			- User that connected from more than X workstation
 			- User that connected to more than X workstation
 """
 
@@ -190,16 +191,15 @@ class RDPHistory(ElasticScenario):
 	help = 'Extract logon history from LocalSessionManager logs'
 
 	def process(self):
-		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) & \
-			MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
+		rdp_logon = ( Match(Event__System__EventID__text__keyword='21') | Match(Event__System__EventID__text__keyword='25') ) & Match(Event__System__Channel__keyword='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational')
 
 		if self.filter:
-			rdp_logon = rdp_logon & self.filter
+			rdp_logon = (rdp_logon) & self.filter
 
-		logging.info(rdp_logon)
+		
 		self.search = self.search.query(rdp_logon)
+		logging.info(json.dumps(self.search.to_dict(), indent=2))
 		self.resp = self.search.execute()
-
 
 		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Username', 'IP Address'])
 
@@ -218,91 +218,35 @@ class RDPHistory(ElasticScenario):
 
 				self.alert.add_alert([timestamp, computer, alert_data['message'], 'Remote Desktop', alert_data['TargetUserName'], alert_data['IpAddress']])
 
-# class StatLogon(ElasticScenario):
-# 	help = 'Extract stats about logon'
 
-# 	def __init__(self):
-# 		super(StatLogon, self).__init__()
+class LogonStat(ElasticScenario):
+	help = 'Print stats about logon'
 
-# 	def process(self):
-# 		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
-# 		self.search = self.search.query(sec_logon)
-# 		self.resp = self.search.execute()
+	def __init__(self):
+		super(LogonStat, self).__init__()
 
-# 		print('Total hits: {}'.format(self.resp.hits.total))
+	def process(self):
+		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
 
-# 		process = set()
-# 		"""
-# 		  Total sucessful connections:
-# 		  Total Failed connections:
-# 		  Process used for logon:
-# 		  	- XXXXX : XX connections
-# 		  	- XXXXX : XX connections
-# 		  	- XXXXX : XX connections
-# 		  Account used for logon:
-# 		  	- ACOUNT | FIRST TIME | LAST TIME | NB_CO | IPs | NB_FAIL | NB_SUCCESS
-# 		"""
-# 		stat_per_comp = {
-# 			'success' : 0,
-# 			'fail' : 0,
-# 			'process' : {},
-# 			'account' : {}
-# 		}
-
-# 		stat_per_account = {
-# 			'first_seen' : None,
-# 			'last_seen' : None,
-# 			'nb_connections' : 0,
-# 			'nb_fail' : 0,
-# 			'ips' : {}
-# 		}
-# 		stats = {}
+		if self.filter:
+			sec_logon = sec_logon & self.filter
 
 
-# 		print('==========================================================')
-# 		print('===  Warning this is only based on 4624 and 4625 events ==')
-# 		print('==========================================================')
-
-# 		for hit in self.search.scan():
-# 			stat = stats.get(hit.Event.System.Computer, copy.deepcopy(stat_per_comp))
-			
-# 			account_name = '{}\\{}'.format(hit.Event.EventData.Data.TargetDomainName, hit.Event.EventData.Data.TargetUserName)
-# 			acc = stat['account'].get(account_name, copy.deepcopy(stat_per_account))
-# 			acc['nb_connections'] = acc['nb_connections'] + 1
-# 			nb_co = acc['ips'].get(hit.Event.EventData.Data.IpAddress, 0)
-# 			acc['ips'][hit.Event.EventData.Data.IpAddress] = nb_co + 1
-
-# 			evt_date = hit.Event.System.TimeCreated.SystemTime
-# 			if not acc['first_seen']:
-# 				acc['first_seen'] = evt_date
-# 				acc['last_seen'] = evt_date
-# 			else:
-# 				acc['first_seen'] = min(evt_date, acc['first_seen'])
-# 				acc['last_seen'] = max(evt_date, acc['last_seen'])
-
-# 			if hit.Event.System.EventID.text == '4624':
-# 				stat['success'] = stat['success'] + 1
-# 			if hit.Event.System.EventID.text == '4625':
-# 				acc['nb_fail'] = acc['nb_fail'] + 1				
-# 				stat['fail'] = stat['fail'] + 1
-
-# 			if 'ProcessName' in hit.Event.EventData:
-# 				proc_stat = stat['process'].get(hit.Event.EventData.Data.ProcessName, 0)
-# 				stat['process'][hit.Event.EventData.Data.ProcessName] = proc_stat + 1
-
-# 			stat['account'][account_name] = acc
-# 			stats[hit.Event.System.Computer] = stat
-
-		
-
-# 		for computer, stat in stats.items():
-# 			print('======= Logon Stats for {} ======='.format(computer))
-# 			accounts = stat['account']
-# 			stat['account'] = None
-# 			print(json.dumps(stats, indent = 2))
-# 			header = ['Name', 'First Seen', 'Last Seen', 'Total Connections', 'IPs', 'Nb Fail']
-# 			print('|'.join(header))
-# 			for account, acc_stat in accounts.items():
-# 				print('|'.join([account, acc_stat['first_seen'], acc_stat['last_seen'], str(acc_stat['nb_connections']), ';'.join(acc_stat['ips'].keys()),  str(acc_stat['nb_fail']) ] ))
+		self.search = self.search.query(sec_logon)
+		self.search.aggs.bucket('computer', 'terms', field='Event.System.Computer.keyword', size = self.bucket_size)\
+			.bucket('username', 'terms', field='Event.EventData.Data.TargetUserName.keyword', size = self.bucket_size)\
+			.bucket('logontype', 'terms', field='Event.EventData.Data.LogonType.keyword', size = self.bucket_size)\
+			.bucket('eventid', 'terms', field='Event.System.EventID.text.keyword', size = self.bucket_size)\
+			.bucket('ip', 'terms', field='Event.EventData.Data.IpAddress.keyword', size = self.bucket_size)\
+			.bucket('source', 'terms', field='Event.EventData.Data.WorkstationName.keyword', size = self.bucket_size)\
 
 
+		self.alert.init(['Computer Name', 'Username', 'Logon Type', 'Success / Failure', 'IP', 'Source Name', 'Count'])
+		self.resp = self.search.execute()
+		for computer_data in self.resp.aggregations.computer:
+			for username_data in computer_data.username:
+				for logontype_data in username_data.logontype:
+					for eventid_data in logontype_data.eventid:
+						for ip_data in eventid_data.ip:
+							for source_data in ip_data.source:
+								self.alert.add_alert([computer_data.key, username_data.key, LogonHistory.LOGON_TYPE.get(logontype_data.key, logontype_data.key), 'Success' if eventid_data.key == '4624' else 'Failure', ip_data.key, source_data.key, source_data.doc_count])
