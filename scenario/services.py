@@ -128,20 +128,16 @@ class BITSService(ElasticScenario):
 		bits_service = (MultiMatch(query='59', fields=[FIELD_EVENTID]) | MultiMatch(query='60', fields=[FIELD_EVENTID]) | MultiMatch(query='61', fields=[FIELD_EVENTID]) ) \
 			& MultiMatch(query='Microsoft-Windows-Bits-Client/Operational', fields=[FIELD_CHANNEL])
 		self.search = self.search.query(bits_service)
-		self.search.aggs.bucket('computer', A('terms', field='Event.System.Computer.keyword'))\
-			.bucket('bits', 'terms', field='Event.EventData.Data.url.keyword')
+		self.search.aggs.bucket('computer', 'terms', field='Event.System.Computer.keyword', size = self.bucket_size)\
+			.bucket('bits', 'terms', field='Event.EventData.Data.url.keyword', size = self.bucket_size)
 
 
-		self.alert.init(['Computer Name', 'Targeted URL', 'Nb Hits'])
+		self.alert.init(['Computer Name', 'Location', 'Path', 'Params', 'Query', 'Nb Hits'])
 		self.resp = self.search.execute()
 		for computer_data in self.resp.aggregations.computer:
 			for bits_data in computer_data.bits:
-				alert_data = OrderedDict()
-				alert_data['Computer'] = computer_data.key
-				alert_data['URL'] = bits_data.key
-				alert_data['count'] = bits_data.doc_count
-
-				self.alert.add_alert([computer_data.key, bits_data.key, bits_data.doc_count])
+				url = urlparse(bits_data.key)
+				self.alert.add_alert([computer_data.key, '{}://{}'.format(url.scheme, url.netloc) if url.netloc else url.geturl(), url.path, url.params, url.query, bits_data.doc_count])
 
 """
 	Should be done using aggregation !
