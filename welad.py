@@ -12,7 +12,7 @@ import argparse
 import logging
 import sys
 
-from scenario.logon import LogonHistory, RDPHistory, FailedLogonHistory
+from scenario.logon import LogonHistory, RDPHistory, FailedLogonHistory, LogonStat
 from scenario.services import MaliciousPowerShell, BITSService
 from scenario.processes import ProcessTree, ProcessStat
 from scenario.search import Search
@@ -54,7 +54,7 @@ def init_parser(scenarios, writers):
 def main():
 	# Instantiate all scenarios
 	#   TODO: maybe I should do something with __init__.py to load those....	
-	SCENARS = [LogonHistory(), RDPHistory(), MaliciousPowerShell(), BITSService(), FailedLogonHistory(), Search(), ProcessTree(), ProcessStat()]
+	SCENARS = [LogonHistory(), RDPHistory(), MaliciousPowerShell(), BITSService(), FailedLogonHistory(), Search(), ProcessTree(), ProcessStat(), LogonStat()]
 	SCENARS_DICT = {}
 	for scenar in SCENARS:
 		SCENARS_DICT[scenar.__class__.__name__] = scenar
