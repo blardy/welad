@@ -134,6 +134,10 @@ class BITSService(ElasticScenario):
 	def process(self):
 		bits_service = (MultiMatch(query='59', fields=[FIELD_EVENTID]) | MultiMatch(query='60', fields=[FIELD_EVENTID]) | MultiMatch(query='61', fields=[FIELD_EVENTID]) ) \
 			& MultiMatch(query='Microsoft-Windows-Bits-Client/Operational', fields=[FIELD_CHANNEL])
+
+		if self.filter:
+			bits_service &= self.filter
+
 		self.search = self.search.query(bits_service)
 		self.search.aggs.bucket('computer', 'terms', field='Event.System.Computer.keyword', size = self.bucket_size)\
 			.bucket('bits', 'terms', field='Event.EventData.Data.url.keyword', size = self.bucket_size)
