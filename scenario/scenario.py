@@ -86,11 +86,11 @@ class ElasticScenario(Scenar):
 		self.filter = None
 		filters = []
 		if args._from and args._to:
-			filters.append(Range(** {'@timestamp': {'gte': args._from, 'lte':  args._to}}))
+			filters.append(Range(** {'Event.System.TimeCreated.SystemTime': {'gte': args._from, 'lte':  args._to}}))
 		elif args._from:
-			filters.append(Range(** {'@timestamp': {'gte': args._from}}))
+			filters.append(Range(** {'Event.System.TimeCreated.SystemTime': {'gte': args._from}}))
 		elif args._to:
-			filters.append(Range(** {'@timestamp': {'lte': args._to}}))
+			filters.append(Range(** {'Event.System.TimeCreated.SystemTime': {'lte': args._to}}))
 
 		if args.system:
 			filters.append(MultiMatch(query=args.system, fields=['Event.System.Computer']))
