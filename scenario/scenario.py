@@ -79,6 +79,7 @@ class ElasticScenario(Scenar):
 		self.args = args
 		self.elastic = args.elastic
 		self.index = args.index
+		self.bucket_size = 9000
 
 		self.client = Elasticsearch([self.elastic], http_auth=(args.es_user, args.es_password), timeout=30)
 		self.search = Search(using=self.client, index=self.index)
