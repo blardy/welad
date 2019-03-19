@@ -75,8 +75,8 @@ class ElasticScenario(Scenar):
 		parser.add_argument('--to', dest='_to',required=False, help='YYYY-MM-DDTHH:MM:SS')
 		parser.add_argument('--filter', required=False, help='Custom filter "Event.EventData.Data.SubjectUserName.keyword:plop"', action='append')
 
-	def get_conf(self, key):
-		return self.conf.get(self.__class__.__name__, {}).get(key, None)
+	def get_conf(self, key, default=None):
+		return self.conf.get(self.__class__.__name__, {}).get(key, default)
 
 	def _get_conf(self, classname, key, default=None):
 		return self.conf.get(classname, {}).get(key, default)

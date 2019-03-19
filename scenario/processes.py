@@ -16,10 +16,64 @@ import json
 
 	SCENARIO:
 		+ ProcessAnomaly
-			- Todo :) from temp, appdata...;
 			- from process tree ? => powershell=>csc=>cvtres // svchost=>cmd/powershell
-			- from whitelist/blacklist
 """
+
+class SuspiciousProcess(ElasticScenario):
+	help = 'Extract Suspicious processes'
+
+	def __init__(self):
+		super(SuspiciousProcess, self).__init__()
+
+	def add_argument(self, parser):
+		super(SuspiciousProcess, self).add_argument(parser)
+
+	def process(self):
+		processes_search =  MultiMatch(query='4688', fields=[FIELD_EVENTID])
+
+		if self.filter:
+			processes_search &= self.filter
+
+		self.alert.init(['Date / Time (UTC)', 'System', 'UserName', 'Session ID', 'Image Path', 'Parent'])
+
+
+		try:
+			field_path = self.get_conf('evt_image_path', 'Event.EventData.Data.NewProcessName')
+			keywords = self.get_conf('blacklist', default=[])
+			q_keyword = MultiMatch(query=keywords[0], fields=[field_path])
+			for keyword in keywords[1:]:
+				q_keyword |= MultiMatch(query=keyword, fields=[field_path])
+
+			processes_search = processes_search & q_keyword
+			logging.info(' => query: {}'.format(processes_search))
+			self.search =self.search.query(processes_search)
+			self.resp = self.search.execute()
+			logging.info(' => Total hits: : {}'.format(self.resp.hits.total))
+
+			for hit in self.search.scan():
+				computer = hit.Event.System.Computer
+				timestamp = hit.Event.System.TimeCreated.SystemTime
+				eventid = hit.Event.System.EventID.text
+				desc = hit.Event.Description.short.strip()
+				channel = hit.Event.System.Channel.strip()
+				sid = hit.Event.System.Security.UserID.strip()
+				# Specific
+				process = hit.Event.EventData.Data.NewProcessName
+				pid = hit.Event.EventData.Data.NewProcessId
+				ppid = hit.Event.EventData.Data.ProcessId
+				logon_id = hit.Event.EventData.Data.SubjectLogonId
+				logon_domain = hit.Event.EventData.Data.SubjectDomainName
+				logon_account = hit.Event.EventData.Data.SubjectUserName
+				logon_sid = hit.Event.EventData.Data.SubjectUserSid
+				try:
+					parent_name = '{} ({})'.fromat(hit.Event.EventData.Data.ParentProcessName, int(ppid, 16))
+				except:	
+					parent_name = int(ppid, 16)
+
+				self.alert.add_alert([timestamp, computer, logon_account, logon_id, process, parent_name])
+		except Exception as e:
+			logging.error(e)
+
 
 class Process(object):
 	"""Process object 4688 + 4689 docs"""
@@ -126,9 +180,10 @@ class Process(object):
 		#  AND coming from same system (Computer)
 		#  AND coming from same logon Session (SubjectLogonId)
 		#  AND that was spawned when current process was alive (begin < child < end)
-		time_filter = Range(** {'@timestamp': {'gte': self.begin}})
+		evt_time_field ='Event.System.TimeCreated.SystemTime'
+		time_filter = Range(** {evt_time_field: {'gte': self.begin}})
 		if self.end:
-			time_filter = Range(** {'@timestamp': {'gte': self.begin, 'lte': self.end}})
+			time_filter = Range(** {evt_time_field: {'gte': self.begin, 'lte': self.end}})
 
 		child_query = MultiMatch(query='4688', fields=[FIELD_EVENTID]) \
 			& MultiMatch(query=self.system, fields=['Event.System.Computer.keyword']) \
@@ -355,7 +410,7 @@ class ProcessTree(ElasticScenario):
 
 		#
 		#  3 - Find childs
-		#
+		#       get_childs is querying the ES... could by optimize by getting all processes into mem (1 query)...
 
 		cpt = 0
 		for current_process in PROCESS_ALL:
