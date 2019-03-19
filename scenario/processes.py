@@ -437,6 +437,7 @@ class ProcessTree(ElasticScenario):
 		#  4 - Raise alerts // print... !!!
 		#
 		self.alert.init(['System', 'Process', 'Date / Time (UTC)', 'username', 'Tree'])
+		self.alert.please_do_not_sort_me = True
 		root_processes = [process for uid, process in PROCESS_TREE.items()]
 		for process in sorted(root_processes, key=lambda process: process.begin):
 
