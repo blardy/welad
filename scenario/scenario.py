@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import yaml
 
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Search
@@ -64,8 +65,8 @@ class ElasticScenario(Scenar):
 		super(ElasticScenario, self).__init__()
 	
 	def add_argument(self, parser):
-		parser.add_argument('--elastic', required=True, help="IP:port of elasticsearch master")
-		parser.add_argument('--index', required=True, help="elasticsearch index to query")
+		parser.add_argument('--es_host', help="IP:port of elasticsearch master")
+		parser.add_argument('--es_index', help="elasticsearch index to query")
 		parser.add_argument('--es_user', default='', help="")
 		parser.add_argument('--es_password', default='', help="")
 
@@ -74,27 +75,59 @@ class ElasticScenario(Scenar):
 		parser.add_argument('--to', dest='_to',required=False, help='YYYY-MM-DDTHH:MM:SS')
 		parser.add_argument('--filter', required=False, help='Custom filter "Event.EventData.Data.SubjectUserName.keyword:plop"', action='append')
 
+	def get_conf(self, key):
+		return self.conf.get(self.__class__.__name__, {}).get(key, None)
+
+	def _get_conf(self, classname, key, default=None):
+		return self.conf.get(classname, {}).get(key, default)
+
+	def set_conf(self, key, value):
+		scenar_conf = self.conf.get(self.__class__.__name__, {})
+		scenar_conf[key] = value
+		self.conf[self.__class__.__name__] = scenar_conf
+
+	def _set_conf(self, classname, key, value):
+		scenar_conf = self.conf.get(classname, {})
+		scenar_conf[key] = value
+		self.conf[classname] = scenar_conf
 
 	def init(self, args):
 		self.args = args
-		self.elastic = args.elastic
-		self.index = args.index
-		self.bucket_size = 9000
 
-		self.client = Elasticsearch([self.elastic], http_auth=(args.es_user, args.es_password), timeout=30)
+		self.conf = {}
+		if args.conf:
+			self.conf = yaml.load(args.conf)
+		logging.info(self.conf)
+		if args.es_host:
+			self._set_conf('ElasticScenario', 'es_host', args.es_host)
+		if args.es_index:
+			self._set_conf('ElasticScenario','es_index', args.es_index)
+		if args.es_user:
+			self._set_conf('ElasticScenario','es_user', args.es_user)
+		if args.es_password:
+			self._set_conf('ElasticScenario','es_password', args.es_password)
+		logging.info(self.conf)
+
+
+		self.index = self._get_conf('ElasticScenario', 'es_index', 'winevt-lab')
+		self.bucket_size = self._get_conf('ElasticScenario', 'es_bucket_size', 6000)
+
+		self.client = Elasticsearch([self._get_conf('ElasticScenario', 'es_host', '127.0.0.1')], http_auth=(self._get_conf('ElasticScenario', 'es_user', ''), self._get_conf('ElasticScenario', 'es_password', '')), timeout=self._get_conf('ElasticScenario', 'es_timeout', 30))
 		self.search = Search(using=self.client, index=self.index)
 
 		self.filter = None
 		filters = []
+
+		evt_time_field = self._get_conf('ElasticScenario', 'evt_time_field', 'Event.System.TimeCreated.SystemTime')
 		if args._from and args._to:
-			filters.append(Range(** {'Event.System.TimeCreated.SystemTime': {'gte': args._from, 'lte':  args._to}}))
+			filters.append(Range(** {evt_time_field: {'gte': args._from, 'lte':  args._to}}))
 		elif args._from:
-			filters.append(Range(** {'Event.System.TimeCreated.SystemTime': {'gte': args._from}}))
+			filters.append(Range(** {evt_time_field: {'gte': args._from}}))
 		elif args._to:
-			filters.append(Range(** {'Event.System.TimeCreated.SystemTime': {'lte': args._to}}))
+			filters.append(Range(** {evt_time_field: {'lte': args._to}}))
 
 		if args.system:
-			filters.append(MultiMatch(query=args.system, fields=['Event.System.Computer']))
+			filters.append(MultiMatch(query=args.system, fields=[self._get_conf('ElasticScenario', 'evt_system_field', 'Event.System.Computer')]))
 		if args.filter:
 			for f in args.filter:
 				data = f.split(':')
