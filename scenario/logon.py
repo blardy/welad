@@ -74,7 +74,7 @@ class FailedLogonHistory(ElasticScenario):
 
 		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Domain\\User', 'IP Address', 'Workstion Name'])
 
-		for hit in self.scan():
+		for hit in self.search.scan():
 			computer = hit.Event.System.Computer
 			timestamp = hit.Event.System.TimeCreated.SystemTime
 
