@@ -7,10 +7,10 @@ ElasticScenario:
   es_bucket_size: 9000
   es_timeout: 60
 
-  es_host: localhost
-  es_index: winevt-lab
-  es_user: elastic
-  es_password: PutYourPasswordHere
+  es_host: 127.0.0.1
+  es_index: winevt-INDEX
+  es_user: User
+  es_password: ASuperSTrongPassword
 
   evt_time_field: Event.System.TimeCreated.SystemTime
   evt_system_field: Event.System.Computer
