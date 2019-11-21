@@ -9,8 +9,8 @@ from scenario.utils import _get_max_len_by_line
 
 from elasticsearch_dsl.query import MultiMatch, Range
 
-FIELD_EVENTID = 'Event.System.EventID.text.keyword'
-FIELD_CHANNEL = 'Event.System.Channel.keyword'
+# FIELD_EVENTID = 'winlog.event_id'
+# FIELD_CHANNEL = 'winlog.channel'
 
 class Alerts(object):
 	def __init__(self, header = [], data = [], please_do_not_sort_me=False):
@@ -59,6 +59,21 @@ class Scenar(object):
 		pass
 
 
+	def get_value(self, input_dict, nested_field, default='-'):
+		"""Get a nested values from a dict by giving a string like 'd1.d2.d4' will get dict[d1][d2][d3]
+		"""
+		return self._get_value(input_dict, nested_field.split('.'), default)
+
+	def _get_value(self, input_dict, path, default):
+		if not isinstance(input_dict, dict):
+			return default
+
+		if len(path) == 1:
+			return input_dict.get(path[0], default)
+
+		return self._get_value(input_dict.get(path[0], None), path[1:], default)
+
+
 class ElasticScenario(Scenar):
 	help = 'Abstract class for scenario using elasticsearch'
 
@@ -75,6 +90,18 @@ class ElasticScenario(Scenar):
 		parser.add_argument('--from', dest='_from', required=False, help='YYYY-MM-DDTHH:MM:SS')
 		parser.add_argument('--to', dest='_to',required=False, help='YYYY-MM-DDTHH:MM:SS')
 		parser.add_argument('--filter', required=False, help='Custom filter "Event.EventData.Data.SubjectUserName.keyword:plop"', action='append')
+
+	def get_general_mapping(self, key, default=None):
+		return self.conf.get('ElasticScenario').get(key, default)
+
+	def get_mapping(self, key, default=None):
+		v = self.get_conf(key, default)
+		logging.debug('Getting conf {} with key {} ==> {}'.format(self.__class__.__name__, key, v))
+		if not v:
+			return self._get_conf('ElasticScenario', key, default)
+		return v
+
+
 
 	def get_conf(self, key, default=None):
 		return self.conf.get(self.__class__.__name__, {}).get(key, default)
@@ -97,7 +124,7 @@ class ElasticScenario(Scenar):
 
 		self.conf = {}
 		if args.conf:
-			self.conf = yaml.load(args.conf)
+			self.conf = yaml.load(args.conf, Loader=yaml.FullLoader)
 		logging.info(self.conf)
 		if args.es_host:
 			self._set_conf('ElasticScenario', 'es_host', args.es_host)
@@ -119,7 +146,7 @@ class ElasticScenario(Scenar):
 		self.filter = None
 		filters = []
 
-		self.evt_time_field = self._get_conf('ElasticScenario', 'evt_time_field', 'Event.System.TimeCreated.SystemTime')
+		self.evt_time_field = self._get_conf('ElasticScenario', 'evt_time_field', '@timestamp')
 		if args._from and args._to:
 			filters.append(Range(** {self.evt_time_field: {'gte': args._from, 'lte':  args._to}}))
 		elif args._from:
