@@ -25,7 +25,6 @@ import copy
 """
 	All scenarios related about logon / logoff activities
 """
-
 class FailedLogonHistory(ElasticScenario):
 	help = 'Extract logon history'
 
@@ -58,46 +57,45 @@ class FailedLogonHistory(ElasticScenario):
 
 	def process(self):
 		# 4625 logon
-		sec_logon = (MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
+		sec_logon = (MultiMatch(query='4625', fields=[self.get_mapping('evt_event_id_field')])) & MultiMatch(query='Security', fields=[self.get_mapping('evt_channel_field')])
 
 		if self.filter:
 			sec_logon &= self.filter
 
 		self.search = self.search.sort(self.evt_time_field)
 		self.search = self.search.query(sec_logon)
-		
 		self.resp = self.search.execute()
-
-		logging.info(  json.dumps(self.search.to_dict(), indent=2) )
-
-		
+		logging.debug(json.dumps(self.search.to_dict(), indent=2))
 
 		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Domain\\User', 'IP Address', 'Workstion Name'])
-
 		for hit in self.search.scan():
-			computer = hit.Event.System.Computer
-			timestamp = hit.Event.System.TimeCreated.SystemTime
+			try:
+				d_hit = hit.to_dict()
+				# Generic fields
+				computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+				timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+				event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
 
-			alert_data = {}
-			alert_data['SystemTime'] = hit.Event.System.TimeCreated.SystemTime
-			alert_data['Computer'] = hit.Event.System.Computer
-			alert_data['event_id'] = hit.Event.System.EventID.text
-			alert_data['IpAddress'] = ''
-			alert_data['TargetDomainName'] = '.'
-			alert_data['TargetUserName'] = ''
-			alert_data['LogonType'] = ''
-			alert_data['message'] = ''
-			alert_data['WorkstationName'] = ''
-			alert_data['IpAddress'] = hit.Event.EventData.Data.IpAddress
-			alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.LogonType)
-			alert_data['TargetDomainName'] = hit.Event.EventData.Data.TargetDomainName
-			alert_data['TargetUserName'] = hit.Event.EventData.Data.TargetUserName
-			alert_data['WorkstationName'] = hit.Event.EventData.Data.WorkstationName
-			alert_data['message'] = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()))
+				alert_data = {}
+				alert_data['SystemTime'] = timestamp
+				alert_data['Computer'] = computer
+				alert_data['event_id'] = event_id
+				alert_data['IpAddress'] = ''
+				alert_data['TargetDomainName'] = '.'
+				alert_data['TargetUserName'] = ''
+				alert_data['LogonType'] = ''
+				alert_data['message'] = ''
+				alert_data['WorkstationName'] = ''
+				alert_data['IpAddress'] = self.get_value(d_hit, self.get_mapping('evt_source_ip_field'))
+				alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(self.get_value(d_hit, self.get_mapping('evt_logon_type_field')), self.get_value(d_hit, self.get_mapping('evt_logon_type_field')))
+				alert_data['TargetDomainName'] = self.get_value(d_hit, self.get_mapping('evt_domain_field'))
+				alert_data['TargetUserName'] = self.get_value(d_hit, self.get_mapping('evt_user_field'))
+				alert_data['WorkstationName'] = self.get_value(d_hit, self.get_mapping('evt_source_domain_field'))
+				alert_data['message'] = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(self.get_value(d_hit, self.get_mapping('evt_logon_status_field')).lower(), self.get_value(d_hit, self.get_mapping('evt_logon_status_field')).lower()))
 
-			self.alert.add_alert([timestamp, computer, alert_data['message'], alert_data['LogonType'], '{}\\{}'.format(alert_data['TargetDomainName'], alert_data['TargetUserName']), alert_data['IpAddress'], alert_data['WorkstationName'] ])
-
-
+				self.alert.add_alert([timestamp, computer, alert_data['message'], alert_data['LogonType'], '{}\\{}'.format(alert_data['TargetDomainName'], alert_data['TargetUserName']), alert_data['IpAddress'], alert_data['WorkstationName'] ])
+			except AttributeError as e:
+				logging.error('Event with recordID "{}": {}'.format(hit.winlog.record_id, e))
 
 """
 	List all logon attempts
@@ -135,11 +133,11 @@ class LogonHistory(ElasticScenario):
 
 	def process(self):
 		# 4624 + 4625 logon
-		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) \
-			& MultiMatch(query='Security', fields=[FIELD_CHANNEL])
+		sec_logon = (MultiMatch(query=4624, fields=[self.get_mapping('evt_event_id_field')]) | MultiMatch(query=4625, fields=[self.get_mapping('evt_event_id_field')])) \
+			& MultiMatch(query='Security', fields=[self.get_mapping('evt_channel_field')])
 		# RDP logon
-		rdp_logon = (MultiMatch(query='21', fields=[FIELD_EVENTID]) | MultiMatch(query='25', fields=[FIELD_EVENTID]) ) \
-			& MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[FIELD_CHANNEL])
+		rdp_logon = (MultiMatch(query=21, fields=[self.get_mapping('evt_event_id_field')]) | MultiMatch(query=25, fields=[self.get_mapping('evt_event_id_field')]) ) \
+			& MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[self.get_mapping('evt_channel_field')])
 
 		query = (rdp_logon | sec_logon) 
 		if self.filter:
@@ -150,42 +148,48 @@ class LogonHistory(ElasticScenario):
 		self.resp = self.search.execute()
 		logging.info(' => Total hits: : {}'.format(self.resp.hits.total))
 
-		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Domain\\User', 'IP Address', 'Workstion Name'])
+		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Domain\\User', 'IP Address', 'Workstation Name'])
 
 		for hit in self.search.scan():
-			computer = hit.Event.System.Computer
-			timestamp = hit.Event.System.TimeCreated.SystemTime
+			try:
+				d_hit = hit.to_dict()
+				# Generic fields
+				computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+				timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+				event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
 
-			alert_data = {}
-			alert_data['SystemTime'] = hit.Event.System.TimeCreated.SystemTime
-			alert_data['Computer'] = hit.Event.System.Computer
-			alert_data['event_id'] = hit.Event.System.EventID.text
-			alert_data['IpAddress'] = ''
-			alert_data['TargetDomainName'] = '.'
-			alert_data['TargetUserName'] = ''
-			alert_data['LogonType'] = ''
-			alert_data['message'] = ''
-			alert_data['WorkstationName'] = ''
+				alert_data = {}
+				alert_data['SystemTime'] = timestamp
+				alert_data['Computer'] = computer
+				alert_data['event_id'] = event_id
+				alert_data['IpAddress'] = ''
+				alert_data['TargetDomainName'] = '.'
+				alert_data['TargetUserName'] = ''
+				alert_data['LogonType'] = ''
+				alert_data['message'] = ''
+				alert_data['WorkstationName'] = ''
 
-			if alert_data['event_id'] == '21' or hit.Event.System.EventID.text == '25':					
-				alert_data['IpAddress'] = hit.Event.UserData.EventXML.Address
-				alert_data['TargetUserName'] = hit.Event.UserData.EventXML.User
-				alert_data['LogonType'] = 'Remote Desktop'
-				message = 'Successful connection' if alert_data['event_id'] == '21' else 'Successful reconnection'
-				alert_data['message'] = message
-			else:
-				alert_data['IpAddress'] = hit.Event.EventData.Data.IpAddress
-				alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(hit.Event.EventData.Data.LogonType, hit.Event.EventData.Data.LogonType)
-				alert_data['TargetDomainName'] = hit.Event.EventData.Data.TargetDomainName
-				alert_data['TargetUserName'] = hit.Event.EventData.Data.TargetUserName
-				alert_data['WorkstationName'] = hit.Event.EventData.Data.WorkstationName
-				if alert_data['event_id'] == '4625':
-					message = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(hit.Event.EventData.Data.SubStatus.lower(), hit.Event.EventData.Data.SubStatus.lower()))
+				if alert_data['event_id'] == 21 or alert_data['event_id'] == 25:
+					alert_data['IpAddress'] = self.get_value(d_hit, self.get_mapping('evt_logon_rdp_ip_field'))
+					alert_data['TargetUserName'] = self.get_value(d_hit, self.get_mapping('evt_logon_rdp_user_field'))
+					alert_data['LogonType'] = 'Remote Desktop'
+					alert_data['message'] = 'Successful connection' if alert_data['event_id'] == 21 else 'Successful reconnection'
 				else:
-					message = 'Successful connection'
-				alert_data['message'] = message
+					alert_data['IpAddress'] = self.get_value(d_hit, self.get_mapping('evt_source_ip_field'))
+					alert_data['LogonType'] = LogonHistory.LOGON_TYPE.get(self.get_value(d_hit, self.get_mapping('evt_logon_type_field')), self.get_value(d_hit, self.get_mapping('evt_logon_type_field')))
+					alert_data['TargetDomainName'] = self.get_value(d_hit, self.get_mapping('evt_domain_field'))
+					alert_data['TargetUserName'] = self.get_value(d_hit, self.get_mapping('evt_user_field'))
+					alert_data['WorkstationName'] = self.get_value(d_hit, self.get_mapping('evt_source_domain_field'))
+					if alert_data['event_id'] == 4625:
+						message = 'Fail connection - {}'.format(LogonHistory.LOGON_SUBSTATUS.get(hit.winlog.event_data.Status.lower(), hit.winlog.event_data.SubStatus.lower()))
+					else:
+						message = 'Successful connection'
+					alert_data['message'] = message
 
-			self.alert.add_alert([timestamp, computer, alert_data['message'], alert_data['LogonType'], '{}\\{}'.format(alert_data['TargetDomainName'], alert_data['TargetUserName']), alert_data['IpAddress'], alert_data['WorkstationName'] ])
+				self.alert.add_alert([timestamp, computer, alert_data['message'], alert_data['LogonType'], '{}\\{}'.format(alert_data['TargetDomainName'], alert_data['TargetUserName']), alert_data['IpAddress'], alert_data['WorkstationName'] ])
+			except AttributeError as e:
+				logging.error('Event with recordID "{}": {}'.format(hit.winlog.record_id, e))
+
 
 """
 	Extract logon history from LocalSessionManager logs.
@@ -197,12 +201,11 @@ class RDPHistory(ElasticScenario):
 	help = 'Extract logon history from LocalSessionManager logs'
 
 	def process(self):
-		rdp_logon = ( Match(Event__System__EventID__text__keyword='21') | Match(Event__System__EventID__text__keyword='25') ) & Match(Event__System__Channel__keyword='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational')
-		rdp_logon |= ( Match(Event__System__EventID__text__keyword='1149') & Match(Event__System__Channel__keyword='Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational'))
+		rdp_logon = (( MultiMatch(query=21, fields=[self.get_mapping('evt_event_id_field')]) | MultiMatch(query=25, fields=[self.get_mapping('evt_event_id_field')]) ) & MultiMatch(query='Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', fields=[self.get_mapping('evt_channel_field')]) ) 
+		rdp_logon |=  (MultiMatch(query=1149, fields=[self.get_mapping('evt_event_id_field')]) & MultiMatch(query='Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational', fields=[self.get_mapping('evt_channel_field')]))
 
 		if self.filter:
 			rdp_logon = (rdp_logon) & self.filter
-
 		
 		self.search = self.search.query(rdp_logon)
 		logging.info(json.dumps(self.search.to_dict(), indent=2))
@@ -211,24 +214,28 @@ class RDPHistory(ElasticScenario):
 		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Description', 'Logon Type', 'Username', 'IP Address'])
 
 		for hit in self.search.scan():
-			computer = hit.Event.System.Computer
-			timestamp = hit.Event.System.TimeCreated.SystemTime
+			d_hit = hit.to_dict()
+			# Generic fields
+			computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+			timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+			event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
+
 			message = ''
 			alert_data = {}
-			alert_data['event_id'] = hit.Event.System.EventID.text
+			alert_data['event_id'] = event_id
 
-			if hit.Event.System.EventID.text == '21' or hit.Event.System.EventID.text == '25':
-				alert_data['IpAddress'] = hit.Event.UserData.EventXML.Address
-				alert_data['TargetUserName'] = hit.Event.UserData.EventXML.User
-				message = 'Successful connection' if alert_data['event_id'] == '21' else 'Successful reconnection'
+			if alert_data['event_id'] == 21 or alert_data['event_id'] == 25:
+				alert_data['IpAddress'] = self.get_value(d_hit, self.get_mapping('evt_logon_rdp_ip_field'))
+				alert_data['TargetUserName'] = self.get_value(d_hit, self.get_mapping('evt_logon_rdp_user_field'))
+				message = 'Successful connection' if alert_data['event_id'] == 21 else 'Successful reconnection'
 			else:
-				alert_data['IpAddress'] = hit.Event.UserData.EventXML.Param3
-				alert_data['TargetUserName'] = '{}\\{}'.format(hit.Event.UserData.EventXML.Param2, hit.Event.UserData.EventXML.Param1)
+				alert_data['IpAddress'] = self.get_value(d_hit, self.get_mapping('evt_logon_rdp_1149_ip_field'))
+				alert_data['TargetUserName'] = '{}\\{}'.format(self.get_value(d_hit, self.get_mapping('evt_logon_rdp_1149_domain_field')), self.get_value(d_hit, self.get_mapping('evt_logon_rdp_1149_user_field')))
 				message = 'Incoming connection'
 
 			self.alert.add_alert([timestamp, computer, message, 'Remote Desktop', alert_data['TargetUserName'], alert_data['IpAddress']])
 
-
+#TODO: LogonStat / All mapping
 class LogonStat(ElasticScenario):
 	help = 'Print stats about logon'
 
