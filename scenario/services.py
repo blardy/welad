@@ -17,6 +17,7 @@ import binascii
 """
 	Services related scenarios
 """
+#TODO: MaliciousPowerShell / update mapping
 class MaliciousPowerShell(ElasticScenario):
 	help = 'Search for malicious powershell in services / powershell events'
 
@@ -53,7 +54,7 @@ class MaliciousPowerShell(ElasticScenario):
 
 			channel = hit.Event.System.Channel.strip()
 			sid = hit.Event.System.Security.UserID.strip()
-			if eventid == '7045':
+			if eventid == 7045:
 				continue
 
 			try:
@@ -75,7 +76,8 @@ class MaliciousPowerShell(ElasticScenario):
 
 			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc, '-', sid, mess, ip, port, _payload, decoded_payload])
 
-		services = MultiMatch(query='7045', fields=[FIELD_EVENTID]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
+		services = MultiMatch(query=7045, fields=[self.get_mapping('evt_event_id_field')]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
+		#services = MultiMatch(query=7045, fields=[self.get_mapping('evt_event_id_field')]) & ( MultiMatch(query='COMSPEC', fields=['winlog.event_data.ImagePath']) )
 		search = Search(using=self.client, index=self.index)
 		if self.filter:
 			services &= self.filter
@@ -84,28 +86,26 @@ class MaliciousPowerShell(ElasticScenario):
 
 		resp = search.execute()
 		for hit in search.scan():
-			computer = hit.Event.System.Computer
-			timestamp = hit['@timestamp']
-			eventid = hit.Event.System.EventID.text.strip()
-			desc = hit.Event.Description.short.strip()
-			channel = hit.Event.System.Channel.strip()
-			sid = hit.Event.System.Security.UserID.strip()
-			servicename = hit.Event.EventData.Data.ServiceName.strip()
-			payload = hit.Event.EventData.Data.ImagePath.strip()
-
-			try:
-				tag = hit.tag.strip()
-			except:
-				tag = ''
+			computer = hit.winlog.computer_name
+			d_hit = hit.to_dict()
+			timestamp = d_hit.get('@timestamp')
+			eventid = hit.event.code
+			desc = hit.description.short.strip()
+			channel = hit.winlog.channel.strip()
+			sid = hit.winlog.user.identifier.strip()
+			servicename = hit.winlog.event_data.ServiceName.strip()
+			payload = hit.winlog.event_data.ImagePath.strip()
+			tag = hit.case
 
 			mess, ip, port = 'unknown', '', ''
-			is_decoded, decoded_payload = decode_powershell(payload)
-			if is_decoded:
-				mess, ip, port = analyze_payload(decoded_payload)
+			decoded_payload = ''
+			# is_decoded, decoded_payload = decode_powershell(payload)
+			# if is_decoded:
+			# 	mess, ip, port = analyze_payload(decoded_payload)
 
 			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
 
-		services = MultiMatch(query='4697', fields=[FIELD_EVENTID]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
+		services = MultiMatch(query='4697', fields=[self.get_mapping('evt_channel_field')]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
 		search = Search(using=self.client, index=self.index)
 
 		if self.filter:
@@ -133,10 +133,7 @@ class MaliciousPowerShell(ElasticScenario):
 				mess, ip, port = analyze_payload(decoded_payload)
 
 			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
-
-
-			
-
+	
 """
 	Extract BITS (Background Intelligent Transfer Service) URLs
 		Event 59 - BITS started the BITS Transfer transfer job
@@ -148,15 +145,16 @@ class BITSService(ElasticScenario):
 		super(BITSService, self).__init__()
 
 	def process(self):
-		bits_service = (MultiMatch(query='59', fields=[FIELD_EVENTID]) | MultiMatch(query='60', fields=[FIELD_EVENTID]) | MultiMatch(query='61', fields=[FIELD_EVENTID]) ) \
-			& MultiMatch(query='Microsoft-Windows-Bits-Client/Operational', fields=[FIELD_CHANNEL])
+		bits_service = (MultiMatch(query='59', fields=[self.get_mapping('evt_event_id_field')]) | MultiMatch(query='60', fields=self.get_mapping('evt_event_id_field')) | MultiMatch(query='61', fields=self.get_mapping('evt_event_id_field'))) \
+			& MultiMatch(query='Microsoft-Windows-Bits-Client/Operational', fields=self.get_mapping('evt_channel_field_k'))
 
 		if self.filter:
 			bits_service &= self.filter
 
 		self.search = self.search.query(bits_service)
-		self.search.aggs.bucket('computer', 'terms', field='Event.System.Computer.keyword', size = self.bucket_size)\
-			.bucket('bits', 'terms', field='Event.EventData.Data.url.keyword', size = self.bucket_size)
+
+		self.search.aggs.bucket('computer', 'terms', field=self.get_mapping('evt_system_field_k'), size = self.bucket_size)\
+			.bucket('bits', 'terms', field=self.get_mapping('evt_bits_url_field_k'), size = self.bucket_size)
 
 
 		self.alert.init(['Computer Name', 'Location', 'Path', 'Params', 'Query', 'Nb Hits'])
@@ -165,57 +163,4 @@ class BITSService(ElasticScenario):
 			for bits_data in computer_data.bits:
 				url = urlparse(bits_data.key)
 				self.alert.add_alert([computer_data.key, '{}://{}'.format(url.scheme, url.netloc) if url.netloc else url.geturl(), url.path, url.params, url.query, bits_data.doc_count])
-
-"""
-	Should be done using aggregation !
-	  Event 7036 - The <service name> service entered the <running/stopped> state.
-	  	Event.EventData.Data.param1  => ServiceName
-	  	Event.EventData.Data.param2  => running / stopped
-	  Event 7040 - The start type of the <service> service was changed from disabled to auto start.
-	  	Event.EventData.Data.param1
-	  	Event.EventData.Data.param2
-	  	Event.EventData.Data.param3
-	  	Event.EventData.Data.param4 
-	  Event 7045 - A service was installed in the system.
-	  	Event.EventData.Data.ServiceName      	
-	  	Event.EventData.Data.ServiceType      	
-	  	Event.EventData.Data.StartType
-"""
-
-
-# class StatServices(ElasticScenario):
-# 	help = 'Extract stats about services'
-
-# 	def __init__(self):
-# 		super(StatServices, self).__init__()
-
-# 	def process(self):
-# 		services = MultiMatch(query='7036', fields=[FIELD_EVENTID]) & MultiMatch(query='System', fields=[FIELD_CHANNEL])
-# 		self.search = self.search.query(services)
-# 		self.resp = self.search.execute()
-
-# 		print('Total service hits: {}'.format(self.resp.hits.total))
-
-# 		services_stats = {}
-
-# 		for hit in self.search.scan():
-# 			svc_name = hit.Event.EventData.Data.param1
-# 			svc_state = hit.Event.EventData.Data.param2
-# 			evt_date = hit['@timestamp']
-
-# 			stat = services_stats.get(svc_name, {})
-# 			stat['first_seen'] = min(stat.get('first_seen', evt_date), evt_date)
-# 			stat['last_seen'] = max(stat.get('last_seen', evt_date), evt_date)
-
-# 			if svc_state == 'running':
-# 				stat['nb_start'] = stat.get('nb_start', 0) + 1
-
-# 			services_stats[svc_name] = stat
-
-
-# 		header = ['Service Name', 'First Seen', 'Last Seen', 'nb_start']
-# 		SEPARATOR = '|'
-# 		print(SEPARATOR.join(header))
-# 		for service, stat in services_stats.items():
-# 			print(SEPARATOR.join([service, stat['first_seen'], stat['last_seen'], str(stat.get('nb_start', 0))]))
 
