@@ -235,7 +235,6 @@ class RDPHistory(ElasticScenario):
 
 			self.alert.add_alert([timestamp, computer, message, 'Remote Desktop', alert_data['TargetUserName'], alert_data['IpAddress']])
 
-#TODO: LogonStat / All mapping
 class LogonStat(ElasticScenario):
 	help = 'Print stats about logon'
 
@@ -243,19 +242,19 @@ class LogonStat(ElasticScenario):
 		super(LogonStat, self).__init__()
 
 	def process(self):
-		sec_logon = (MultiMatch(query='4624', fields=[FIELD_EVENTID]) | MultiMatch(query='4625', fields=[FIELD_EVENTID])) & MultiMatch(query='Security', fields=[FIELD_CHANNEL])
+		sec_logon = (MultiMatch(query='4624', fields=[self.get_mapping('evt_event_id_field')]) | MultiMatch(query='4625', fields=[self.get_mapping('evt_event_id_field')])) & MultiMatch(query='Security', fields=[self.get_mapping('evt_channel_field')])
 
 		if self.filter:
 			sec_logon = sec_logon & self.filter
 
 
 		self.search = self.search.query(sec_logon)
-		self.search.aggs.bucket('computer', 'terms', field='Event.System.Computer.keyword', size = self.bucket_size)\
-			.bucket('username', 'terms', field='Event.EventData.Data.TargetUserName.keyword', size = self.bucket_size)\
-			.bucket('logontype', 'terms', field='Event.EventData.Data.LogonType.keyword', size = self.bucket_size)\
-			.bucket('eventid', 'terms', field='Event.System.EventID.text.keyword', size = self.bucket_size)\
-			.bucket('ip', 'terms', field='Event.EventData.Data.IpAddress.keyword', size = self.bucket_size)\
-			.bucket('source', 'terms', field='Event.EventData.Data.WorkstationName.keyword', size = self.bucket_size)\
+		self.search.aggs.bucket('computer', 'terms', field=self.get_mapping('evt_system_field_k'), size = self.bucket_size)\
+			.bucket('username', 'terms', field=self.get_mapping('evt_logon_username_field_k'), size = self.bucket_size)\
+			.bucket('logontype', 'terms', field=self.get_mapping('evt_logon_logontype_field_k'), size = self.bucket_size)\
+			.bucket('eventid', 'terms', field=self.get_mapping('evt_event_id_field'), size = self.bucket_size)\
+			.bucket('ip', 'terms', field=self.get_mapping('evt_logon_ip_field_k'), size = self.bucket_size)\
+			.bucket('source', 'terms', field=self.get_mapping('evt_logon_source_field_k'), size = self.bucket_size)\
 
 
 		self.alert.init(['Computer Name', 'Username', 'Logon Type', 'Success / Failure', 'IP', 'Source Name', 'Count'])
@@ -266,5 +265,5 @@ class LogonStat(ElasticScenario):
 					for eventid_data in logontype_data.eventid:
 						for ip_data in eventid_data.ip:
 							for source_data in ip_data.source:
-								self.alert.add_alert([computer_data.key, username_data.key, LogonHistory.LOGON_TYPE.get(logontype_data.key, logontype_data.key), 'Success' if eventid_data.key == '4624' else 'Failure', ip_data.key, source_data.key, source_data.doc_count])
+								self.alert.add_alert([computer_data.key, username_data.key, LogonHistory.LOGON_TYPE.get(logontype_data.key, logontype_data.key), 'Success' if eventid_data.key == 4624 else 'Failure', ip_data.key, source_data.key, source_data.doc_count])
 
