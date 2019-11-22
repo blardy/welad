@@ -12,12 +12,64 @@ ElasticScenario:
   es_user: User
   es_password: ASuperSTrongPassword
 
-  evt_time_field: Event.System.TimeCreated.SystemTime
-  evt_system_field: Event.System.Computer
-  
-    
+  # Generic Mapping
+  case_field: case
+  evt_time_field: '@timestamp'
+  evt_system_field: winlog.computer_name
+  evt_system_field_k: winlog.computer_name.keyword
+  evt_event_id_field: winlog.event_id
+  evt_channel_field: winlog.channel
+  evt_channel_field_k: winlog.channel.keyword
+  evt_desc_field: description.short
+
+  evt_user_field: user.name
+  evt_user_sid_field: winlog.user.identifier
+  evt_domain_field: user.domain 
+  evt_source_domain_field: source.domain 
+  evt_source_ip_field: source.ip 
+
+  # Logon event
+  evt_logon_type_field: winlog.event_data.LogonType
+  evt_logon_status_field: winlog.event_data.Status
+  evt_logon_rdp_ip_field: winlog.user_data.Address
+  evt_logon_rdp_user_field: winlog.user_data.User
+  evt_logon_rdp_1149_user_field: winlog.user_data.Param1
+  evt_logon_rdp_1149_domain_field: winlog.user_data.Param2
+  evt_logon_rdp_1149_ip_field: winlog.user_data.Param3
+
+  #
+  evt_image_path: winlog.event_data.NewProcessName
+  evt_image_path_k: winlog.event_data.NewProcessName.keyword
+  evt_pid_k: winlog.event_data.ProcessId.keyword
+
+LogonStat:
+  evt_logon_username_field_k: winlog.event_data.TargetUserName.keyword
+  evt_logon_logontype_field_k: winlog.event_data.LogonType.keyword
+  evt_logon_ip_field_k: winlog.event_data.IpAddress.keyword
+  evt_logon_source_field_k: winlog.event_data.WorkstationName.keyword
+
+BITSService:
+  evt_bits_url_field_k:  winlog.event_data.url.keyword
+
+ProcessStat:
+  evt_username_field_k: winlog.event_data.SubjectUserName.keyword
+  evt_logon_id_field_k: winlog.event_data.SubjectLogonId.keyword
+
+MaliciousPowerShell:
+  evt_powershell_rawdata_field: winlog.event_data.param3
+  evt_powershell_rawdata_2_field: message
+  evt_service_name_field: winlog.event_data.ServiceName
+  evt_service_path_field: winlog.event_data.ImagePath
+  evt_service_sid: winlog.event_data.SubjectUserSid
+  evt_service_filename_field: winlog.event_data.ServiceFileName
+  blacklist:
+    - COMSPEC
+    - encodedcommand
+    - echo
+    - "-nop -w hidden"
+
+
 SuspiciousProcess:
-  evt_image_path: Event.EventData.Data.NewProcessName
   blacklist:
     # RCE
     - psexec.exe
@@ -36,3 +88,5 @@ SuspiciousProcess:
     - temp
     - appdata
 
+    # test
+    - '*lsass.exe'
