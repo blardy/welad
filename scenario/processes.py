@@ -18,7 +18,6 @@ import json
 		+ ProcessAnomaly
 			- from process tree ? => powershell=>csc=>cvtres // svchost=>cmd/powershell
 """
-
 class SuspiciousProcess(ElasticScenario):
 	help = 'Extract Suspicious processes'
 
@@ -29,13 +28,12 @@ class SuspiciousProcess(ElasticScenario):
 		super(SuspiciousProcess, self).add_argument(parser)
 
 	def process(self):
-		processes_search =  MultiMatch(query='4688', fields=[FIELD_EVENTID])
+		processes_search =  MultiMatch(query=4688, fields=[self.get_mapping('evt_event_id_field')])
 
 		if self.filter:
 			processes_search &= self.filter
 
 		self.alert.init(['Date / Time (UTC)', 'System', 'UserName', 'Session ID', 'Image Path', 'Parent'])
-
 
 		try:
 			field_path = self.get_conf('evt_image_path', 'Event.EventData.Data.NewProcessName')
@@ -51,29 +49,28 @@ class SuspiciousProcess(ElasticScenario):
 			logging.info(' => Total hits: : {}'.format(self.resp.hits.total))
 
 			for hit in self.search.scan():
-				computer = hit.Event.System.Computer
-				timestamp = hit.Event.System.TimeCreated.SystemTime
-				eventid = hit.Event.System.EventID.text
-				desc = hit.Event.Description.short.strip()
-				channel = hit.Event.System.Channel.strip()
-				sid = hit.Event.System.Security.UserID.strip()
+				computer = hit.winlog.computer_name
+				d_hit = hit.to_dict()
+				timestamp = d_hit.get('@timestamp')
+				eventid = hit.winlog.event_id
+				desc = hit.description.short.strip()
+				channel = hit.winlog.channel.strip()
 				# Specific
-				process = hit.Event.EventData.Data.NewProcessName
-				pid = hit.Event.EventData.Data.NewProcessId
-				ppid = hit.Event.EventData.Data.ProcessId
-				logon_id = hit.Event.EventData.Data.SubjectLogonId
-				logon_domain = hit.Event.EventData.Data.SubjectDomainName
-				logon_account = hit.Event.EventData.Data.SubjectUserName
-				logon_sid = hit.Event.EventData.Data.SubjectUserSid
+				process = hit.winlog.event_data.NewProcessName
+				pid = hit.winlog.event_data.NewProcessId
+				ppid = hit.winlog.event_data.ProcessId
+				logon_id = hit.winlog.event_data.SubjectLogonId
+				logon_domain = hit.winlog.event_data.SubjectDomainName
+				logon_account = hit.winlog.event_data.SubjectUserName
+				logon_sid = hit.winlog.event_data.SubjectUserSid
 				try:
-					parent_name = '{} ({})'.fromat(hit.Event.EventData.Data.ParentProcessName, int(ppid, 16))
+					parent_name = '{} ({})'.fromat(hit.winlog.event_data.ParentProcessName, int(ppid, 16))
 				except:	
 					parent_name = int(ppid, 16)
 
 				self.alert.add_alert([timestamp, computer, logon_account, logon_id, process, parent_name])
 		except Exception as e:
 			logging.error(e)
-
 
 class Process(object):
 	"""Process object 4688 + 4689 docs"""
@@ -180,34 +177,33 @@ class Process(object):
 		#  AND coming from same system (Computer)
 		#  AND coming from same logon Session (SubjectLogonId)
 		#  AND that was spawned when current process was alive (begin < child < end)
-		evt_time_field ='Event.System.TimeCreated.SystemTime'
+		evt_time_field = self.get_mapping('Event.System.TimeCreated.SystemTime')
 		time_filter = Range(** {evt_time_field: {'gte': self.begin}})
 		if self.end:
 			time_filter = Range(** {evt_time_field: {'gte': self.begin, 'lte': self.end}})
 
-		child_query = MultiMatch(query='4688', fields=[FIELD_EVENTID]) \
-			& MultiMatch(query=self.system, fields=['Event.System.Computer.keyword']) \
-			& MultiMatch(query=self.pid, fields=['Event.EventData.Data.ProcessId.keyword']) \
+		child_query = MultiMatch(query=4688, fields=[self.get_mapping('evt_event_id_field')]) \
+			& MultiMatch(query=self.system, fields=[self.get_mapping('evt_system_field_k')]) \
+			& MultiMatch(query=self.pid, fields=[self.get_mapping('evt_pid_k')]) \
 			& time_filter
 
 		search_object = search_object.query(child_query)
 		response = search_object.execute()
 		for hit in search_object.scan():
-			# Generic
-			computer = hit.Event.System.Computer
-			timestamp = hit.Event.System.TimeCreated.SystemTime
-			eventid = hit.Event.System.EventID.text
-			desc = hit.Event.Description.short.strip()
-			channel = hit.Event.System.Channel.strip()
-			sid = hit.Event.System.Security.UserID.strip()
+			computer = hit.winlog.computer_name
+			d_hit = hit.to_dict()
+			timestamp = d_hit.get('@timestamp')
+			eventid = hit.winlog.event_id
+			desc = hit.description.short.strip()
+			channel = hit.winlog.channel.strip()
 			# Specific
-			process = hit.Event.EventData.Data.NewProcessName
-			pid = hit.Event.EventData.Data.NewProcessId
-			ppid = hit.Event.EventData.Data.ProcessId
-			logon_id = hit.Event.EventData.Data.SubjectLogonId
-			logon_domain = hit.Event.EventData.Data.SubjectDomainName
-			logon_account = hit.Event.EventData.Data.SubjectUserName
-			logon_sid = hit.Event.EventData.Data.SubjectUserSid
+			process = hit.winlog.event_data.NewProcessName
+			pid = hit.winlog.event_data.NewProcessId
+			ppid = hit.winlog.event_data.ProcessId
+			logon_id = hit.winlog.event_data.SubjectLogonId
+			logon_domain = hit.winlog.event_data.SubjectDomainName
+			logon_account = hit.winlog.event_data.SubjectUserName
+			logon_sid = hit.winlog.event_data.SubjectUserSid
 
 			# Todo : get end of process ? for handling depth
 			child = Process(computer, process, pid, ppid, timestamp, None, logon_id, logon_domain, logon_account, logon_sid)
@@ -242,34 +238,39 @@ class ProcessStat(ElasticScenario):
 		parser.add_argument('--username', required=False, help='Filter on logon username (ie: plop)')
 
 	def process(self):
-		processes_search =  MultiMatch(query='4688', fields=[FIELD_EVENTID])
+		processes_search =  MultiMatch(query=4688, fields=[self.get_mapping('evt_event_id_field')])
 		if self.args.username:
-			processes_search = processes_search & MultiMatch(query=self.args.username, fields=['Event.EventData.Data.SubjectUserName.keyword'])
+			processes_search = processes_search & MultiMatch(query=self.args.username, fields=[self.get_mapping('evt_username_field_k')])
 		if self.args.logon_id:
-			processes_search = processes_search & MultiMatch(query=self.args.logon_id, fields=['Event.EventData.Data.SubjectLogonId.keyword'])
+			processes_search = processes_search & MultiMatch(query=self.args.logon_id, fields=[self.get_mapping('evt_logon_id_field_k')])
 		if self.args.process_name:
-			processes_search = processes_search & MultiMatch(query=self.args.process_name, fields=['Event.EventData.Data.NewProcessName'])
+			processes_search = processes_search & MultiMatch(query=self.args.process_name, fields=[self.get_mapping('evt_image_path_k')])
 
 		if self.filter:
 			processes_search &= self.filter
 
-
 		logging.info(' => query: {}'.format(processes_search))
-		self.search =self.search.query(processes_search)
+		self.search = self.search.query(processes_search)
 
-		self.search.aggs.bucket('computer', A('terms', field='Event.System.Computer.keyword'))\
-		.bucket('username', 'terms', field='Event.EventData.Data.SubjectUserName.keyword')\
-		.bucket('logon_id', 'terms', field='Event.EventData.Data.SubjectLogonId.keyword')\
-		.metric('first_process', 'min', field='Event.System.TimeCreated.SystemTime')\
-		.metric('last_process', 'max', field='Event.System.TimeCreated.SystemTime')
+		self.search.aggs.bucket('computer', 'terms', field=self.get_mapping('evt_system_field_k'))
+		# .bucket('username', 'terms', field=self.get_mapping('evt_username_field_k'))
+		# .bucket('logon_id', 'terms', field=self.get_mapping('evt_logon_id_field_k'))
+		# .metric('first_process', 'min', field=self.get_mapping('evt_time_field'))\
+		# .metric('last_process', 'max', field=self.get_mapping('evt_time_field'))
 		self.resp = self.search.execute()
 
 		self.alert.init(['System', 'UserName', 'Session ID', 'Nb Process', 'First Process', 'Last Process'])
+		logging.debug('=========plop=============')
+		logging.debug(self.resp.aggregations.to_dict())
+		logging.debug(self.resp.to_dict())
 		for computer_data in self.resp.aggregations.computer:
-			for username_data in computer_data.username:
-				for logon_id_data in username_data.logon_id:
-					self.alert.add_alert([computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string])
-
+			logging.debug(computer_data)
+			# for username_data in computer_data.username:
+			# 	print('plop')
+			# 	for logon_id_data in username_data.logon_id:
+			# 		print('plop')
+			# 		self.alert.add_alert([computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string])
+		logging.debug('=========plop=============')
 
 class ProcessTree(ElasticScenario):
 	help = 'Rebuild process Tree'
