@@ -164,7 +164,7 @@ class Process(object):
 			return False
 		return True
 
-	def get_childs(self, search_object):
+	def get_childs(self, search_object, scenar):
 		""" It returns a dict containing childs processes. Keys are UID of childs
 		It is SLOW as it query the ES for findings childs.
 		"""
@@ -177,33 +177,42 @@ class Process(object):
 		#  AND coming from same system (Computer)
 		#  AND coming from same logon Session (SubjectLogonId)
 		#  AND that was spawned when current process was alive (begin < child < end)
-		evt_time_field = self.get_mapping('Event.System.TimeCreated.SystemTime')
+		evt_time_field = scenar.get_mapping('evt_time_field')
 		time_filter = Range(** {evt_time_field: {'gte': self.begin}})
 		if self.end:
 			time_filter = Range(** {evt_time_field: {'gte': self.begin, 'lte': self.end}})
 
-		child_query = MultiMatch(query=4688, fields=[self.get_mapping('evt_event_id_field')]) \
-			& MultiMatch(query=self.system, fields=[self.get_mapping('evt_system_field_k')]) \
-			& MultiMatch(query=self.pid, fields=[self.get_mapping('evt_pid_k')]) \
+		child_query = MultiMatch(query=4688, fields=[scenar.get_mapping('evt_event_id_field')]) \
+			& MultiMatch(query=self.system, fields=[scenar.get_mapping('evt_system_field_k')]) \
+			& MultiMatch(query=self.pid, fields=[scenar.get_mapping('evt_pid_k')]) \
 			& time_filter
 
 		search_object = search_object.query(child_query)
 		response = search_object.execute()
 		for hit in search_object.scan():
-			computer = hit.winlog.computer_name
 			d_hit = hit.to_dict()
-			timestamp = d_hit.get('@timestamp')
-			eventid = hit.winlog.event_id
-			desc = hit.description.short.strip()
-			channel = hit.winlog.channel.strip()
+			# Generic fields
+			computer = scenar.get_value(d_hit, scenar.get_mapping('evt_system_field'))
+			timestamp = scenar.get_value(d_hit, scenar.get_mapping('evt_time_field'))
+			event_id = scenar.get_value(d_hit, scenar.get_mapping('evt_event_id_field'))
+			desc = scenar.get_value(d_hit, scenar.get_mapping('evt_desc_field'))
+			case = scenar.get_value(d_hit, scenar.get_mapping('case_field'))
+
+			channel = scenar.get_value(d_hit, scenar.get_mapping('evt_channel_field'))
+			# Generic
+
+			sid = '-'
+			process = scenar.get_value(d_hit, scenar.get_mapping('evt_image_path_field'))
+			pid = scenar.get_value(d_hit, scenar.get_mapping('evt_pid_field'))
+
 			# Specific
-			process = hit.winlog.event_data.NewProcessName
-			pid = hit.winlog.event_data.NewProcessId
-			ppid = hit.winlog.event_data.ProcessId
-			logon_id = hit.winlog.event_data.SubjectLogonId
-			logon_domain = hit.winlog.event_data.SubjectDomainName
-			logon_account = hit.winlog.event_data.SubjectUserName
-			logon_sid = hit.winlog.event_data.SubjectUserSid
+			process = scenar.get_value(d_hit, scenar.get_mapping('evt_process_name_field'))
+			pid = scenar.get_value(d_hit, scenar.get_mapping('evt_4688_pid_field'))
+			ppid = scenar.get_value(d_hit, scenar.get_mapping('evt_ppid_field'))
+			logon_id = scenar.get_value(d_hit, scenar.get_mapping('evt_logon_id_field'))
+			logon_domain = scenar.get_value(d_hit, scenar.get_mapping('evt_logon_domain_field'))
+			logon_account = scenar.get_value(d_hit, scenar.get_mapping('evt_logon_account_field'))
+			logon_sid = scenar.get_value(d_hit, scenar.get_mapping('evt_sid_field'))
 
 			# Todo : get end of process ? for handling depth
 			child = Process(computer, process, pid, ppid, timestamp, None, logon_id, logon_domain, logon_account, logon_sid)
@@ -252,11 +261,11 @@ class ProcessStat(ElasticScenario):
 		logging.info(' => query: {}'.format(processes_search))
 		self.search = self.search.query(processes_search)
 
-		self.search.aggs.bucket('computer', 'terms', field=self.get_mapping('evt_system_field_k'))
-		# .bucket('username', 'terms', field=self.get_mapping('evt_username_field_k'))
-		# .bucket('logon_id', 'terms', field=self.get_mapping('evt_logon_id_field_k'))
-		# .metric('first_process', 'min', field=self.get_mapping('evt_time_field'))\
-		# .metric('last_process', 'max', field=self.get_mapping('evt_time_field'))
+		self.search.aggs.bucket('computer', 'terms', field=self.get_mapping('evt_system_field_k'))\
+		.bucket('username', 'terms', field=self.get_mapping('evt_username_field_k'))\
+		.bucket('logon_id', 'terms', field=self.get_mapping('evt_logon_id_field_k'))\
+		.metric('first_process', 'min', field=self.get_mapping('evt_time_field'))\
+		.metric('last_process', 'max', field=self.get_mapping('evt_time_field'))
 		self.resp = self.search.execute()
 
 		self.alert.init(['System', 'UserName', 'Session ID', 'Nb Process', 'First Process', 'Last Process'])
@@ -265,11 +274,9 @@ class ProcessStat(ElasticScenario):
 		logging.debug(self.resp.to_dict())
 		for computer_data in self.resp.aggregations.computer:
 			logging.debug(computer_data)
-			# for username_data in computer_data.username:
-			# 	print('plop')
-			# 	for logon_id_data in username_data.logon_id:
-			# 		print('plop')
-			# 		self.alert.add_alert([computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string])
+			for username_data in computer_data.username:
+				for logon_id_data in username_data.logon_id:
+					self.alert.add_alert([computer_data.key.split('.')[0], username_data.key, logon_id_data.key, logon_id_data.doc_count, logon_id_data.first_process.value_as_string, logon_id_data.last_process.value_as_string])
 		logging.debug('=========plop=============')
 
 class ProcessTree(ElasticScenario):
@@ -289,13 +296,14 @@ class ProcessTree(ElasticScenario):
 	def find_all_possible_exit_points(self, process_list, max_query_size=100):
 		exit_points = {}
 
-		exit_query = MultiMatch(query='4689', fields=[FIELD_EVENTID])
+		exit_query = MultiMatch(query=4689, fields=[self.get_mapping('evt_event_id_field')])
 		sub_queries = []
 		for current_process in process_list:
-			sub_q = MultiMatch(query=current_process.pid, fields=['Event.EventData.Data.ProcessId.keyword']) \
-				& MultiMatch(query=current_process.system, fields=['Event.System.Computer.keyword']) \
-				& MultiMatch(query=current_process.logon_id, fields=['Event.EventData.Data.SubjectLogonId.keyword']) \
-				& MultiMatch(query=current_process.image_path, fields=['Event.EventData.Data.ProcessName.keyword'])
+			sub_q = MultiMatch(query=current_process.pid, fields=[self.get_mapping('evt_pid_field_k')]) \
+				& MultiMatch(query=current_process.system, fields=[self.get_mapping('evt_system_field_k')]) \
+				& MultiMatch(query=current_process.logon_id, fields=[self.get_mapping('evt_logon_id_field_k')]) \
+				& MultiMatch(query=current_process.image_path, fields=[self.get_mapping('evt_image_path_field_k')])
+
 
 			sub_queries.append(sub_q)
 
@@ -311,25 +319,28 @@ class ProcessTree(ElasticScenario):
 			exit_processes_resp = exit_search.execute()
 			logging.info(' => Total hits: : {}'.format(exit_processes_resp.hits.total))
 			for hit in exit_search.scan():
-				# Generic
-				computer = hit.Event.System.Computer
-				timestamp = hit.Event.System.TimeCreated.SystemTime
-				eventid = hit.Event.System.EventID.text
-				desc = hit.Event.Description.short.strip()
-				channel = hit.Event.System.Channel.strip()
-				sid = hit.Event.System.Security.UserID.strip()
+				d_hit = hit.to_dict()
+				# Generic fields
+				computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+				timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+				event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
+				desc = self.get_value(d_hit, self.get_mapping('evt_desc_field'))
+				case = self.get_value(d_hit, self.get_mapping('case_field'))
 
-				process = hit.Event.EventData.Data.ProcessName
-				pid = hit.Event.EventData.Data.ProcessId
+				channel = self.get_value(d_hit, self.get_mapping('evt_channel_field'))
+				# Generic
+
+				sid = '-'
+				process = self.get_value(d_hit, self.get_mapping('evt_image_path_field'))
+				pid = self.get_value(d_hit, self.get_mapping('evt_pid_field'))
 				
-				logon_id = hit.Event.EventData.Data.SubjectLogonId
-				logon_domain = hit.Event.EventData.Data.SubjectDomainName
-				logon_account = hit.Event.EventData.Data.SubjectUserName
-				logon_sid = hit.Event.EventData.Data.SubjectUserSid
+				logon_id = self.get_value(d_hit, self.get_mapping('evt_logon_id_field'))
+				logon_domain = self.get_value(d_hit, self.get_mapping('evt_logon_domain_field'))
+				logon_account = self.get_value(d_hit, self.get_mapping('evt_logon_account_field'))
+				logon_sid = self.get_value(d_hit, self.get_mapping('evt_sid_field'))
 
 				# Build dict
 				#  { computer : { logon_id : { process: { pid : [timestamp1,...., N ] }}}}
-
 				computer_exits = exit_points.get(computer, {})
 				logon_id_exits = computer_exits.get(logon_id, {})
 				process_exit = logon_id_exits.get(process, {})
@@ -345,14 +356,14 @@ class ProcessTree(ElasticScenario):
 		return exit_points
 
 	def process(self):
-		processes_search =  MultiMatch(query='4688', fields=[FIELD_EVENTID])
+		processes_search =  MultiMatch(query='4688', fields=[self.get_mapping('evt_event_id_field')])
 
 		if self.args.username:
-			processes_search = processes_search & MultiMatch(query=self.args.username, fields=['Event.EventData.Data.SubjectUserName.keyword'])
+			processes_search = processes_search & MultiMatch(query=self.args.username, fields=[self.get_mapping('evt_logon_account_field_k')])
 		if self.args.logon_id:
-			processes_search = processes_search & MultiMatch(query=self.args.logon_id, fields=['Event.EventData.Data.SubjectLogonId.keyword'])
+			processes_search = processes_search & MultiMatch(query=self.args.logon_id, fields=[self.get_mapping('evt_logon_id_field_k')])
 		if self.args.process_name:
-			processes_search = processes_search & MultiMatch(query=self.args.process_name, fields=['Event.EventData.Data.NewProcessName'])
+			processes_search = processes_search & MultiMatch(query=self.args.process_name, fields=[self.get_mapping('evt_image_path_field_k')])
 
 		if self.filter:
 			processes_search &= self.filter
@@ -376,26 +387,30 @@ class ProcessTree(ElasticScenario):
 		#  1 - Get all processes
 		#
 		for hit in self.search.scan():
-			# Generic
-			computer = hit.Event.System.Computer
-			timestamp = hit.Event.System.TimeCreated.SystemTime
-			eventid = hit.Event.System.EventID.text
-			desc = hit.Event.Description.short.strip()
-			channel = hit.Event.System.Channel.strip()
-			sid = hit.Event.System.Security.UserID.strip()
-			# Specific
-			process = hit.Event.EventData.Data.NewProcessName
-			pid = hit.Event.EventData.Data.NewProcessId
-			ppid = hit.Event.EventData.Data.ProcessId
-			logon_id = hit.Event.EventData.Data.SubjectLogonId
-			logon_domain = hit.Event.EventData.Data.SubjectDomainName
-			logon_account = hit.Event.EventData.Data.SubjectUserName
-			logon_sid = hit.Event.EventData.Data.SubjectUserSid
+			d_hit = hit.to_dict()
+			# Generic fields
+			computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+			timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+			event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
+			desc = self.get_value(d_hit, self.get_mapping('evt_desc_field'))
+			case = self.get_value(d_hit, self.get_mapping('case_field'))
 
-			try:
-				parent_name = hit.Event.EventData.Data.ParentProcessName
-			except:
-				parent_name = None
+			channel = self.get_value(d_hit, self.get_mapping('evt_channel_field'))
+			# Generic
+
+			sid = '-'
+			process = self.get_value(d_hit, self.get_mapping('evt_image_path_field'))
+			pid = self.get_value(d_hit, self.get_mapping('evt_pid_field'))
+
+			# Specific
+			process = self.get_value(d_hit, self.get_mapping('evt_process_name_field'))
+			pid = self.get_value(d_hit, self.get_mapping('evt_4688_pid_field'))
+			ppid = self.get_value(d_hit, self.get_mapping('evt_ppid_field'))
+			logon_id = self.get_value(d_hit, self.get_mapping('evt_logon_id_field'))
+			logon_domain = self.get_value(d_hit, self.get_mapping('evt_logon_domain_field'))
+			logon_account = self.get_value(d_hit, self.get_mapping('evt_logon_account_field'))
+			logon_sid = self.get_value(d_hit, self.get_mapping('evt_sid_field'))
+			parent_name = self.get_value(d_hit, self.get_mapping('evt_pname_field'), default=None)
 
 			# Create process object (missing the end date...)
 			current_process = Process(computer, process, pid, ppid, timestamp, None, logon_id, logon_domain, logon_account, logon_sid, parent_name=parent_name)
@@ -418,7 +433,7 @@ class ProcessTree(ElasticScenario):
 		# for current_process in PROCESS_VALID:
 			cpt += 1
 			logging.info('Computing childs: {}/{}'.format(cpt, len(PROCESS_ALL)))			
-			for child_uid in current_process.get_childs(Search(using=self.client, index=self.index)).keys():
+			for child_uid in current_process.get_childs(Search(using=self.client, index=self.index), self).keys():
 				# look if we already handle this child process to build the tree
 				if PROCESS_TREE.get(child_uid, False):
 					# We already handle this child

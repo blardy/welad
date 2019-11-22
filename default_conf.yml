@@ -21,6 +21,7 @@ ElasticScenario:
   evt_channel_field: winlog.channel
   evt_channel_field_k: winlog.channel.keyword
   evt_desc_field: description.short
+  evt_sid_field: winlog.event_data.SubjectUserSid
 
   evt_user_field: user.name
   evt_user_sid_field: winlog.user.identifier
@@ -90,3 +91,22 @@ SuspiciousProcess:
 
     # test
     - '*lsass.exe'
+
+
+
+ProcessTree:
+  #4689
+  evt_pid_field: winlog.event_data.ProcessId
+  evt_pid_field_k: winlog.event_data.ProcessId.keyword
+  evt_logon_id_field: winlog.event_data.SubjectLogonId
+  evt_logon_id_field_k: winlog.event_data.SubjectLogonId.keyword
+  evt_image_path_field: winlog.event_data.ProcessName
+  evt_image_path_field_k: winlog.event_data.ProcessName.keyword
+  evt_logon_domain_field: winlog.event_data.SubjectDomainName
+  evt_logon_account_field: winlog.event_data.SubjectUserName
+  evt_logon_account_field_k: winlog.event_data.SubjectUserName.keyword
+  #4688
+  evt_process_name_field: winlog.event_data.NewProcessName
+  evt_ppid_field: winlog.event_data.ProcessId
+  evt_pname_field: winlog.event_data.ParentProcessName
+  evt_4688_pid_field: winlog.event_data.NewProcessId
