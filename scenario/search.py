@@ -6,6 +6,7 @@ from scenario.scenario import *
 
 import logging
 
+#TODO: Search / All mapping
 class Search(ElasticScenario):
 	help = 'Export events matching the given keyword'
 

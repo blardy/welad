@@ -28,56 +28,60 @@ class MaliciousPowerShell(ElasticScenario):
 		super(MaliciousPowerShell, self).add_argument(parser)
 
 	def process(self):
-		
-		services = MultiMatch(query='Windows PowerShell', fields=['Event.System.Channel.keyword']) & (MultiMatch(query='-noni') | MultiMatch(query='-nop -w hidden') | MultiMatch(query='COMSPEC') )
 
+
+		blacklist = self.get_conf('blacklist', default=[])
+		blacklist_filter = None
+		if blacklist:
+			blacklist_filter = MultiMatch(query=blacklist[0])
+			for keyword in blacklist[1:]:
+				blacklist_filter = blacklist_filter | MultiMatch(query=keyword)
+
+		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Case', 'Channel', 'EventID', 'Description (short)', 'Service Name', 'SID', 'Payload Analysis', 'IP', 'Port', 'Payload (Raw)', 'Payload (Decoded)'])
+		
+		# Powershell Exec evidence
+		#services = MultiMatch(query='Windows PowerShell', fields=[self.get_mapping('evt_channel_field_k')]) & (MultiMatch(query='-noni') | MultiMatch(query='-nop -w hidden') | MultiMatch(query='COMSPEC') )
+		services = MultiMatch(query='Windows PowerShell', fields=[self.get_mapping('evt_channel_field_k')]) & ( blacklist_filter )
 		if self.filter:
-			services &= self.filter
-			
+			services &= self.filter	
 		self.search =self.search.query(services)
 		self.resp = self.search.execute()
 
-		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Tag', 'Channel', 'EventID', 'Description (short)', 'Service Name', 'SID', 'Payload Analysis', 'IP', 'Port', 'Payload (Raw)', 'Payload (Decoded)'])
-
 		for hit in self.search.scan():
-			computer = hit.Event.System.Computer
-			timestamp = hit.Event.System.TimeCreated.SystemTime
-			eventid = hit.Event.System.EventID.text
-			try:
-				desc = hit.Event.Description.short.strip()
-			except:
-				desc = ''
-			try:
-				tag = hit.tag.strip()
-			except:
-				tag = ''
+			d_hit = hit.to_dict()
+			# Generic fields
+			computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+			timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+			event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
+			desc = self.get_value(d_hit, self.get_mapping('evt_desc_field'))
+			case = self.get_value(d_hit, self.get_mapping('case_field'))
 
-			channel = hit.Event.System.Channel.strip()
-			sid = hit.Event.System.Security.UserID.strip()
-			if eventid == 7045:
+			channel = self.get_value(d_hit, self.get_mapping('evt_channel_field'))
+			sid = '-'
+			if event_id == 7045:
 				continue
 
-			try:
-				try:
-					payload = [x for x in hit.Event.EventData.RawData.split('\n') if 'HostApplication=' in x][0]
-					_payload = payload.strip().replace('HostApplication=', '')
-				except:
-					payload = hit.Event.EventData.Data.ImagePath
-					_payload = payload.strip()
-			except:
-				continue
+			# Extract payload from Powershell raw data
+			logging.debug(event_id)
+			logging.debug(hit.message)
+			logging.debug(self.get_value(d_hit, self.get_mapping('evt_powershell_rawdata_field')))
+			logging.debug([x for x in self.get_value(d_hit, self.get_mapping('evt_powershell_rawdata_field')).split('\n') if 'HostApplication=' in x])
+			logging.debug('===================================')
+			payload = [x for x in self.get_value(d_hit, self.get_mapping('evt_powershell_rawdata_field')).split('\n') if 'HostApplication=' in x]
+			if not payload:
+				[x for x in self.get_value(d_hit, self.get_mapping('evt_powershell_rawdata_2_field')).split('\n') if 'HostApplication=' in x]
+			_payload = ''
+			if payload:
+				_payload = payload[0].strip().replace('HostApplication=', '')
 
-
-			
+			# TODO: decode paylaod
 			mess, ip, port = 'unknown', '', ''
-			is_decoded, decoded_payload = decode_powershell(payload)
-			if is_decoded:
-				mess, ip, port = analyze_payload(decoded_payload)
+			is_decoded, decoded_payload  = '', ''
 
-			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc, '-', sid, mess, ip, port, _payload, decoded_payload])
+			self.alert.add_alert([timestamp, computer, case, channel, event_id, desc, '-', sid, mess, ip, port, _payload, decoded_payload])
 
-		services = MultiMatch(query=7045, fields=[self.get_mapping('evt_event_id_field')]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
-		#services = MultiMatch(query=7045, fields=[self.get_mapping('evt_event_id_field')]) & ( MultiMatch(query='COMSPEC', fields=['winlog.event_data.ImagePath']) )
+		# Service Creation evidence
+		services = MultiMatch(query=7045, fields=[self.get_mapping('evt_event_id_field')]) & ( blacklist_filter )
 		search = Search(using=self.client, index=self.index)
 		if self.filter:
 			services &= self.filter
@@ -86,16 +90,18 @@ class MaliciousPowerShell(ElasticScenario):
 
 		resp = search.execute()
 		for hit in search.scan():
-			computer = hit.winlog.computer_name
 			d_hit = hit.to_dict()
-			timestamp = d_hit.get('@timestamp')
-			eventid = hit.event.code
-			desc = hit.description.short.strip()
-			channel = hit.winlog.channel.strip()
-			sid = hit.winlog.user.identifier.strip()
-			servicename = hit.winlog.event_data.ServiceName.strip()
-			payload = hit.winlog.event_data.ImagePath.strip()
-			tag = hit.case
+			# Generic fields
+			computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+			timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+			event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
+			desc = self.get_value(d_hit, self.get_mapping('evt_desc_field'))
+			case = self.get_value(d_hit, self.get_mapping('case_field'))
+			channel = self.get_value(d_hit, self.get_mapping('evt_channel_field'))
+
+			sid = self.get_value(d_hit, self.get_mapping('evt_user_sid_field'))
+			servicename = self.get_value(d_hit, self.get_mapping('evt_service_name_field'))
+			payload = self.get_value(d_hit, self.get_mapping('evt_service_path_field'))
 
 			mess, ip, port = 'unknown', '', ''
 			decoded_payload = ''
@@ -103,36 +109,36 @@ class MaliciousPowerShell(ElasticScenario):
 			# if is_decoded:
 			# 	mess, ip, port = analyze_payload(decoded_payload)
 
-			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
+			self.alert.add_alert([timestamp, computer, case, channel, event_id, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
 
-		services = MultiMatch(query='4697', fields=[self.get_mapping('evt_channel_field')]) & ( MultiMatch(query='COMSPEC') | MultiMatch(query='if') |  MultiMatch(query='encodedcommand') |  MultiMatch(query='echo'))
+		# 4697
+		services = MultiMatch(query='4697', fields=[self.get_mapping('evt_event_id_field')]) & ( blacklist_filter )
 		search = Search(using=self.client, index=self.index)
-
 		if self.filter:
 			services &= self.filter
-
 		search = search.query(services)
-
+		
 		resp = search.execute()
 		for hit in search.scan():
-			computer = hit.Event.System.Computer
-			timestamp = hit['@timestamp']
-			eventid = hit.Event.System.EventID.text.strip()
-			desc = hit.Event.Description.short.strip()
-			channel = hit.Event.System.Channel.strip()
-			sid = hit.Event.EventData.Data.SubjectUserSid.strip()
-			servicename = hit.Event.EventData.Data.ServiceName.strip()
-			payload = hit.Event.EventData.Data.ServiceFileName.strip()
-			try:
-				tag = hit.tag.strip()
-			except:
-				tag = ''
+			d_hit = hit.to_dict()
+			# Generic fields
+			computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+			timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+			event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
+			desc = self.get_value(d_hit, self.get_mapping('evt_desc_field'))
+			case = self.get_value(d_hit, self.get_mapping('case_field'))
+			channel = self.get_value(d_hit, self.get_mapping('evt_channel_field'))
+			sid = self.get_value(d_hit, self.get_mapping('evt_service_sid'))
+
+			servicename = self.get_value(d_hit, self.get_mapping('evt_service_name_field'))
+			payload = self.get_value(d_hit, self.get_mapping('evt_service_filename_field'))
+
 			mess, ip, port = 'unknown', '', ''
 			is_decoded, decoded_payload = decode_powershell(payload)
 			if is_decoded:
 				mess, ip, port = analyze_payload(decoded_payload)
 
-			self.alert.add_alert([timestamp, computer, tag, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
+			self.alert.add_alert([timestamp, computer, case, channel, eventid, desc,servicename, sid,  mess, ip, port, payload, decoded_payload])
 	
 """
 	Extract BITS (Background Intelligent Transfer Service) URLs
