@@ -36,7 +36,7 @@ class SuspiciousProcess(ElasticScenario):
 		self.alert.init(['Date / Time (UTC)', 'System', 'UserName', 'Session ID', 'Image Path', 'Parent'])
 
 		try:
-			field_path = self.get_conf('evt_image_path', 'Event.EventData.Data.NewProcessName')
+			field_path = self.get_mapping('evt_process_name_field')
 			keywords = self.get_conf('blacklist', default=[])
 			q_keyword = MultiMatch(query=keywords[0], fields=[field_path])
 			for keyword in keywords[1:]:
@@ -49,24 +49,31 @@ class SuspiciousProcess(ElasticScenario):
 			logging.info(' => Total hits: : {}'.format(self.resp.hits.total))
 
 			for hit in self.search.scan():
-				computer = hit.winlog.computer_name
 				d_hit = hit.to_dict()
-				timestamp = d_hit.get('@timestamp')
-				eventid = hit.winlog.event_id
-				desc = hit.description.short.strip()
-				channel = hit.winlog.channel.strip()
+				# Generic fields
+				computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+				timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+				event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
+				desc = self.get_value(d_hit, self.get_mapping('evt_desc_field'))
+				case = self.get_value(d_hit, self.get_mapping('case_field'))
+
+				channel = self.get_value(d_hit, self.get_mapping('evt_channel_field'))
+				# Generic
+
+				sid = '-'
+				process = self.get_value(d_hit, self.get_mapping('evt_image_path_field'))
+				pid = self.get_value(d_hit, self.get_mapping('evt_pid_field'))
+
 				# Specific
-				process = hit.winlog.event_data.NewProcessName
-				pid = hit.winlog.event_data.NewProcessId
-				ppid = hit.winlog.event_data.ProcessId
-				logon_id = hit.winlog.event_data.SubjectLogonId
-				logon_domain = hit.winlog.event_data.SubjectDomainName
-				logon_account = hit.winlog.event_data.SubjectUserName
-				logon_sid = hit.winlog.event_data.SubjectUserSid
-				try:
-					parent_name = '{} ({})'.fromat(hit.winlog.event_data.ParentProcessName, int(ppid, 16))
-				except:	
-					parent_name = int(ppid, 16)
+				process = self.get_value(d_hit, self.get_mapping('evt_process_name_field'))
+				pid = self.get_value(d_hit, self.get_mapping('evt_4688_pid_field'))
+				ppid = self.get_value(d_hit, self.get_mapping('evt_ppid_field'))
+				logon_id = self.get_value(d_hit, self.get_mapping('evt_logon_id_field'))
+				logon_domain = self.get_value(d_hit, self.get_mapping('evt_logon_domain_field'))
+				logon_account = self.get_value(d_hit, self.get_mapping('evt_logon_account_field'))
+				logon_sid = self.get_value(d_hit, self.get_mapping('evt_sid_field'))
+				parent_name = '{} ({})'.format(self.get_value(d_hit, self.get_mapping('evt_pname_field')), int(ppid, 16))
+
 
 				self.alert.add_alert([timestamp, computer, logon_account, logon_id, process, parent_name])
 		except Exception as e:
