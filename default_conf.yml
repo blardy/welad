@@ -42,24 +42,33 @@ ElasticScenario:
   evt_image_path: winlog.event_data.NewProcessName
   evt_image_path_k: winlog.event_data.NewProcessName.keyword
   evt_pid_k: winlog.event_data.ProcessId.keyword
+  evt_process_name_field: winlog.event_data.NewProcessName
+  evt_ppid_field: winlog.event_data.ProcessId
+  evt_pname_field: winlog.event_data.ParentProcessName
+  evt_4688_pid_field: winlog.event_data.NewProcessId
+  evt_pid_field: winlog.event_data.ProcessId
+  evt_pid_field_k: winlog.event_data.ProcessId.keyword
+  evt_logon_id_field: winlog.event_data.SubjectLogonId
+  evt_logon_id_field_k: winlog.event_data.SubjectLogonId.keyword
+  evt_image_path_field: winlog.event_data.ProcessName
+  evt_image_path_field_k: winlog.event_data.ProcessName.keyword
+  evt_logon_domain_field: winlog.event_data.SubjectDomainName
+  evt_logon_account_field: winlog.event_data.SubjectUserName
+  evt_logon_account_field_k: winlog.event_data.SubjectUserName.keyword
 
-# Mapping & Conf used by LogonStat scenar
 LogonStat:
   evt_logon_username_field_k: winlog.event_data.TargetUserName.keyword
   evt_logon_logontype_field_k: winlog.event_data.LogonType.keyword
   evt_logon_ip_field_k: winlog.event_data.IpAddress.keyword
   evt_logon_source_field_k: winlog.event_data.WorkstationName.keyword
 
-# Mapping & Conf used by BITSService scenar
 BITSService:
   evt_bits_url_field_k:  winlog.event_data.url.keyword
 
-# Mapping & Conf used by ProcessStat scenar
 ProcessStat:
   evt_username_field_k: winlog.event_data.SubjectUserName.keyword
   evt_logon_id_field_k: winlog.event_data.SubjectLogonId.keyword
 
-# Mapping & Conf used by MaliciousPowerShell scenar
 MaliciousPowerShell:
   evt_powershell_rawdata_field: winlog.event_data.param3
   evt_powershell_rawdata_2_field: message
@@ -73,7 +82,7 @@ MaliciousPowerShell:
     - echo
     - "-nop -w hidden"
 
-# Mapping & Conf used by SuspiciousProcess scenar
+
 SuspiciousProcess:
   blacklist:
     # RCE
@@ -93,20 +102,5 @@ SuspiciousProcess:
     - temp
     - appdata
 
-# Mapping & Conf used by ProcessTree scenar
-ProcessTree:
-  #4689
-  evt_pid_field: winlog.event_data.ProcessId
-  evt_pid_field_k: winlog.event_data.ProcessId.keyword
-  evt_logon_id_field: winlog.event_data.SubjectLogonId
-  evt_logon_id_field_k: winlog.event_data.SubjectLogonId.keyword
-  evt_image_path_field: winlog.event_data.ProcessName
-  evt_image_path_field_k: winlog.event_data.ProcessName.keyword
-  evt_logon_domain_field: winlog.event_data.SubjectDomainName
-  evt_logon_account_field: winlog.event_data.SubjectUserName
-  evt_logon_account_field_k: winlog.event_data.SubjectUserName.keyword
-  #4688
-  evt_process_name_field: winlog.event_data.NewProcessName
-  evt_ppid_field: winlog.event_data.ProcessId
-  evt_pname_field: winlog.event_data.ParentProcessName
-  evt_4688_pid_field: winlog.event_data.NewProcessId
+    # test
+    - cmd
