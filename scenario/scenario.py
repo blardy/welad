@@ -9,9 +9,6 @@ from scenario.utils import _get_max_len_by_line
 
 from elasticsearch_dsl.query import MultiMatch, Range
 
-# FIELD_EVENTID = 'winlog.event_id'
-# FIELD_CHANNEL = 'winlog.channel'
-
 class Alerts(object):
 	def __init__(self, header = [], data = [], please_do_not_sort_me=False):
 		self.header = header
