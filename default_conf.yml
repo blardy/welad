@@ -114,3 +114,7 @@ SuspiciousProcess:
 
     # test
     - cmd.exe
+
+Search:
+  evt_event_data_1_field: winlog.event_data 
+  evt_event_data_2_field: winlog.user_data
