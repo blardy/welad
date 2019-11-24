@@ -86,10 +86,11 @@ class ElasticScenario(Scenar):
 		parser.add_argument('--es_user', default='', help="")
 		parser.add_argument('--es_password', default='', help="")
 
+		parser.add_argument('--case', required=False, help='Filter on system name (ie: TEST)')
 		parser.add_argument('--system', required=False, help='Filter on system name (ie: plop-desktop)')
 		parser.add_argument('--from', dest='_from', required=False, help='YYYY-MM-DDTHH:MM:SS')
 		parser.add_argument('--to', dest='_to',required=False, help='YYYY-MM-DDTHH:MM:SS')
-		parser.add_argument('--filter', required=False, help='Custom filter "Event.EventData.Data.SubjectUserName.keyword:plop"', action='append')
+		parser.add_argument('--filter', required=False, help='Custom filter "winlog.event_data.SubjectUserName.keyword:plop"', action='append')
 
 	def get_general_mapping(self, key, default=None):
 		return self.conf.get('ElasticScenario').get(key, default)
@@ -154,6 +155,8 @@ class ElasticScenario(Scenar):
 		elif args._to:
 			filters.append(Range(** {self.evt_time_field: {'lte': args._to}}))
 
+		if args.case:
+			filters.append(MultiMatch(query=args.case, fields=[self._get_conf('ElasticScenario', 'case_field', '')]))
 		if args.system:
 			filters.append(MultiMatch(query=args.system, fields=[self._get_conf('ElasticScenario', 'evt_system_field', 'Event.System.Computer')]))
 		if args.filter:
