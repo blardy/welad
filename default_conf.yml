@@ -13,7 +13,7 @@ ElasticScenario:
   es_password: ASuperSTrongPassword
 
   # Generic Mapping
-  case_field: case
+  case_field: case.keyword
   evt_time_field: '@timestamp'
   evt_system_field: winlog.computer_name
   evt_system_field_k: winlog.computer_name.keyword
