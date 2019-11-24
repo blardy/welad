@@ -6,7 +6,6 @@ from scenario.scenario import *
 
 import logging
 
-#TODO: Search / All mapping
 class Search(ElasticScenario):
 	help = 'Export events matching the given keyword'
 
@@ -27,30 +26,24 @@ class Search(ElasticScenario):
 		logging.info(' => query: {}'.format(keyword_search))
 		logging.info(' => Total hits: : {}'.format(self.resp.hits.total))
 
-		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Matching Keyword', 'Channel', 'EventID', 'Description (short)', 'SID', 'Event Data'])
+		self.alert.init(['Date / Time (UTC)', 'Computer Name', 'Matching Keyword', 'Channel', 'EventID', 'Description (short)', 'Event Data'])
 		for hit in self.search.scan():
-			computer = hit.Event.System.Computer
-			timestamp = hit.Event.System.TimeCreated.SystemTime
-			eventid = hit.Event.System.EventID.text
-			desc = hit.Event.Description.short.strip()
-			channel = hit.Event.System.Channel.strip()
-			sid = hit.Event.System.Security.UserID.strip()
+			d_hit = hit.to_dict()
+			# Generic fields
+			computer = self.get_value(d_hit, self.get_mapping('evt_system_field'))
+			timestamp = self.get_value(d_hit, self.get_mapping('evt_time_field'))
+			event_id = self.get_value(d_hit, self.get_mapping('evt_event_id_field'))
+			desc = self.get_value(d_hit, self.get_mapping('evt_desc_field'))
+			case = self.get_value(d_hit, self.get_mapping('case_field'))
+			channel = self.get_value(d_hit, self.get_mapping('evt_channel_field'))
 
-			if hit.Event.__dict__['_d_'].get('UserData', False):
-				event_data = hit.Event.UserData
-				event_data = event_data.__dict__['_d_']
-				if event_data.get('EventData', False):
-					event_data = event_data['EventData']
-			elif hit.Event.__dict__['_d_'].get('EventData', False):
-				event_data = hit.Event.EventData
-				event_data = event_data.__dict__['_d_']
-				if event_data.get('Data', False):
-					event_data = event_data['Data']
-			else:
-				event_data = {'Error': 'Not HANDLE'}
-				
+			data = self.get_value(d_hit, self.get_mapping('evt_event_data_1_field'), None)
+			if not data:
+				data = self.get_value(d_hit, self.get_mapping('evt_event_data_2_field'), None)
+	
+			str_param = ''
+			if data:
+				str_param = '; '.join( ['{}={}'.format(k,v) for k,v in data.items()] )
+				str_param = str_param.replace('\n', '')
 
-			str_param = '; '.join( ['{}={}'.format(k,v) for k,v in event_data.items()] )
-			str_param = str_param.replace('\n', '')
-
-			self.alert.add_alert([timestamp, computer,self.args.keyword, channel, eventid, desc, sid, str_param])
+			self.alert.add_alert([timestamp, computer,self.args.keyword, channel, event_id, desc, str_param])
