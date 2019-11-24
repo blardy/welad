@@ -42,3 +42,21 @@ class LogInfo(ElasticScenario):
 
 				self.alert.add_alert([case_data.key, computer_data.key, first.strftime(self.args.fmt), last.strftime(self.args.fmt), computer_data.doc_count])
 
+"""
+	Extract case information
+"""
+class CaseInfo(ElasticScenario):
+	def __init__(self):
+		super(CaseInfo, self).__init__()
+
+	def process(self):
+		if self.filter:
+			self.search = self.search.query(self.filter)
+
+		self.search.aggs.bucket('case', 'terms', field=self.get_mapping('case_field'), size = self.bucket_size)
+
+		self.alert.init(['Case', 'Total Event'])
+		self.resp = self.search.execute()
+		for case_data in self.resp.aggregations.case:
+			self.alert.add_alert([case_data.key, case_data.doc_count])
+
