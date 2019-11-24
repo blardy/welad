@@ -16,7 +16,7 @@ from scenario.logon import LogonHistory, RDPHistory, FailedLogonHistory, LogonSt
 from scenario.services import MaliciousPowerShell, BITSService
 from scenario.processes import ProcessTree, ProcessStat, SuspiciousProcess
 from scenario.search import Search
-from scenario.info import LogInfo
+from scenario.info import LogInfo, CaseInfo
 
 from writer.console import ConsoleWriter
 from writer.csv import CSVWriter
@@ -56,7 +56,7 @@ def init_parser(scenarios, writers):
 def main():
 	# Instantiate all scenarios
 	#   TODO: maybe I should do something with __init__.py to load those....	
-	SCENARS = [LogInfo(), LogonHistory(), RDPHistory(), MaliciousPowerShell(), BITSService(), FailedLogonHistory(), Search(), ProcessTree(), ProcessStat(), LogonStat(), SuspiciousProcess()]
+	SCENARS = [CaseInfo(), LogInfo(), LogonHistory(), RDPHistory(), MaliciousPowerShell(), BITSService(), FailedLogonHistory(), Search(), ProcessTree(), ProcessStat(), LogonStat(), SuspiciousProcess()]
 	SCENARS_DICT = {}
 	for scenar in SCENARS:
 		SCENARS_DICT[scenar.__class__.__name__] = scenar
