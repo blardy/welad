@@ -162,11 +162,15 @@ class BITSService(ElasticScenario):
 		self.search.aggs.bucket('computer', 'terms', field=self.get_mapping('evt_system_field_k'), size = self.bucket_size)\
 			.bucket('bits', 'terms', field=self.get_mapping('evt_bits_url_field_k'), size = self.bucket_size)
 
+		whitelist = self.get_conf('whitelist', default=[])
 
 		self.alert.init(['Computer Name', 'Location', 'Path', 'Params', 'Query', 'Nb Hits'])
 		self.resp = self.search.execute()
 		for computer_data in self.resp.aggregations.computer:
 			for bits_data in computer_data.bits:
 				url = urlparse(bits_data.key)
-				self.alert.add_alert([computer_data.key, '{}://{}'.format(url.scheme, url.netloc) if url.netloc else url.geturl(), url.path, url.params, url.query, bits_data.doc_count])
+				# Check if in whitelist
+				matches = [domain for domain in whitelist if domain in url.netloc]
+				if not matches:
+					self.alert.add_alert([computer_data.key, '{}://{}'.format(url.scheme, url.netloc) if url.netloc else url.geturl(), url.path, url.params, url.query, bits_data.doc_count])
 
