@@ -64,6 +64,16 @@ LogonStat:
 
 BITSService:
   evt_bits_url_field_k:  winlog.event_data.url.keyword
+  whitelist:
+    # Generic
+    - .windowsupdate.com
+    - g.live.com
+    - storage.googleapis.com
+    - outlook.office365.com
+    - fs.microsoft.com
+    - .gvt1.com
+    - .microsoft.com
+    - .azureedge.net
 
 ProcessStat:
   evt_username_field_k: winlog.event_data.SubjectUserName.keyword
