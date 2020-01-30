@@ -1,4 +1,5 @@
 python-evtx
 elasticsearch
 xmltodict
-sqlite3
+elasticsearch-dsl
+PyYAML
